@@ -64,10 +64,14 @@ training:
   num_sanity_val_steps: 0
   ckpt_every_n_steps: 0
 
-  augment_hflip_p: 0.0
-  augment_vflip_p: 0.0
   num_workers: 4
   pin_memory: true
+  augment_mask_p: 0.5
+  augment_mask_rotate_deg: 180.0
+  augment_mask_scale_min: 0.85
+  augment_mask_scale_max: 1.15
+  augment_mask_shift_frac_x: 0.125
+  augment_mask_shift_frac_y: 0.125
 
   mask_threshold: 0.5
   metric_workers: 4
@@ -83,7 +87,7 @@ rl_training:
   adv_alpha: null
   weight_clip: 10.0
   ref_reg_weight: 0.02
-  reward_metric: "iou"
+  reward_metric: "siou"
   reward_transform: "logit"
   reward_power: 1.0
   reward_logit_eps: 1.0e-4

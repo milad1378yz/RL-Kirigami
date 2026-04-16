@@ -4,7 +4,7 @@ from typing import Optional
 
 import torch
 
-from data_generator.utils import mask_dice, mask_iou, x_matrix_to_mask_and_metrics
+from data_generator.utils import mask_iou, mask_siou, x_matrix_to_mask_and_metrics
 
 
 def shape_penalty_from_metrics(metrics: dict, cfg: Optional[dict]) -> float:
@@ -67,7 +67,7 @@ def compute_shape_metrics_batch(
     threshold: float = 0.5,
     shape_penalty_cfg: Optional[dict] = None,
     reward_cfg: Optional[dict] = None,
-    reward_metric: str = "iou",
+    reward_metric: str = "siou",
     num_workers: int = 1,
     device: Optional[torch.device] = None,
 ) -> dict[str, Optional[torch.Tensor]]:
@@ -91,8 +91,8 @@ def compute_shape_metrics_batch(
     rows = int(context["rows"])
     cols = int(context["cols"])
     metric_name = str(reward_metric).lower()
-    if metric_name not in {"iou", "dice"}:
-        raise ValueError(f"Unsupported reward_metric '{reward_metric}'. Expected 'iou' or 'dice'.")
+    if metric_name not in {"iou", "siou"}:
+        raise ValueError(f"Unsupported reward_metric '{reward_metric}'. Expected 'iou' or 'siou'.")
 
     def _metrics_for_index(i: int):
         pred_mask, geom_metrics, _, _ = x_matrix_to_mask_and_metrics(
@@ -107,7 +107,7 @@ def compute_shape_metrics_batch(
         )
         gt_mask = mask_np[i]
         iou = mask_iou(pred_mask, gt_mask, threshold=threshold)
-        dice = mask_dice(pred_mask, gt_mask, threshold=threshold)
+        siou = mask_siou(pred_mask, gt_mask, threshold=threshold)
         fill_error = abs(float(geom_metrics["fill_ratio"]) - float(gt_mask.mean()))
 
         full_metrics = dict(geom_metrics)
@@ -117,13 +117,13 @@ def compute_shape_metrics_batch(
         reward_raw = None
         reward = None
         if reward_cfg is not None:
-            metric_value = iou if metric_name == "iou" else dice
+            metric_value = iou if metric_name == "iou" else siou
             reward_raw = metric_value - penalty
             reward = shape_reward(metric_value, penalty, reward_cfg)
 
         return {
             "iou": iou,
-            "dice": dice,
+            "siou": siou,
             "reward_raw": reward_raw,
             "reward": reward,
             "penalty": penalty,
@@ -151,7 +151,7 @@ def compute_shape_metrics_batch(
 
     return {
         "iou": _tensor("iou"),
-        "dice": _tensor("dice"),
+        "siou": _tensor("siou"),
         "reward_raw": reward_raw,
         "reward": reward,
         "penalty": _tensor("penalty"),

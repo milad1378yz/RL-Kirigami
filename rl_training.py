@@ -160,9 +160,9 @@ class RLFlowMatchModule(pl.LightningModule):
             "step_size": tr["step_size"],
             "time_points": tr["time_points"],
         }
-        self.reward_metric = str(tr.get("reward_metric", "iou") or "iou").lower()
-        if self.reward_metric not in {"iou", "dice"}:
-            raise ValueError("reward_metric must be 'iou' or 'dice' for the current shape pipeline.")
+        self.reward_metric = str(tr.get("reward_metric", "siou") or "siou").lower()
+        if self.reward_metric not in {"iou", "siou"}:
+            raise ValueError("reward_metric must be 'iou' or 'siou' for the current shape pipeline.")
 
         self.reward_cfg = {
             "transform": str(tr.get("reward_transform", "logit") or "logit"),
@@ -215,6 +215,7 @@ class RLFlowMatchModule(pl.LightningModule):
         batch_rep = _repeat_batch(batch, repeats=group_size)
         x0s = torch.randn_like(batch_rep["images"])
         masks = batch_rep["masks"]
+        metric_masks = batch_rep.get("metric_masks", masks)
 
         was_training = self.model.training
         self.model.eval()
@@ -231,7 +232,7 @@ class RLFlowMatchModule(pl.LightningModule):
         pred_x = sol[-1] if sol.dim() == 5 else sol
         metrics = compute_shape_metrics_batch(
             pred_x,
-            masks,
+            metric_masks,
             self.context,
             x_min=self.x_min,
             x_max=self.x_max,
@@ -348,6 +349,7 @@ class RLFlowMatchModule(pl.LightningModule):
     def validation_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
         loss = self._plain_fm_loss(batch)
         self.log("val/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
+        metric_masks = batch.get("metric_masks", batch["masks"])
 
         with torch.inference_mode():
             sol = sample_with_solver(
@@ -361,7 +363,7 @@ class RLFlowMatchModule(pl.LightningModule):
 
         metrics = compute_shape_metrics_batch(
             pred_x,
-            batch["masks"],
+            metric_masks,
             self.context,
             x_min=self.x_min,
             x_max=self.x_max,
@@ -371,7 +373,7 @@ class RLFlowMatchModule(pl.LightningModule):
         )
 
         self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val/Dice", metrics["dice"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val/SIoU", metrics["siou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
         self.log(
             "val/invalid_any_rate",
             (metrics["invalid_quad_count"] > 0).float().mean(),
@@ -463,7 +465,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
     tb_version = time.strftime("%Y%m%d-%H%M%S")
     logger = TensorBoardLogger(save_dir=tb_root, name=run_name, version=tb_version)
 
-    ckpt_monitor = str(tr.get("ckpt_monitor", "") or "").strip() or "val/IoU"
+    ckpt_monitor = str(tr.get("ckpt_monitor", "") or "").strip() or "val/SIoU"
     ckpt_mode = str(tr.get("ckpt_mode", "") or "").strip() or "max"
     ckpt_filename = str(tr.get("ckpt_filename", "") or "").strip()
     if not ckpt_filename:

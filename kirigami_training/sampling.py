@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from data_generator.utils import mask_dice, mask_iou, mask_overlay_rgb, x_matrix_to_mask_and_metrics
+from data_generator.utils import mask_iou, mask_overlay_rgb, mask_siou, x_matrix_to_mask_and_metrics
 from data_generator.visualization import plot_x_matrix_structure
 
 
@@ -86,7 +86,7 @@ def plot_solver_steps(
         pred_mask = None
         overlay = None
         iou = None
-        dice = None
+        siou = None
         if gt_mask is not None:
             pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
                 context["rows"],
@@ -100,7 +100,7 @@ def plot_solver_steps(
             )
             overlay = mask_overlay_rgb(pred_mask, gt_mask)
             iou = mask_iou(pred_mask, gt_mask)
-            dice = mask_dice(pred_mask, gt_mask)
+            siou = mask_siou(pred_mask, gt_mask)
 
         for col, step in enumerate(step_idx):
             ax = axes[i, col]
@@ -140,7 +140,7 @@ def plot_solver_steps(
 
             axes[i, col].imshow(overlay)
             axes[i, col].axis("off")
-            axes[i, col].set_title(f"IoU {iou:.3f}\nDice {dice:.3f}")
+            axes[i, col].set_title(f"IoU {iou:.3f}\nSIoU {siou:.3f}")
             col += 1
 
             try:
@@ -178,4 +178,3 @@ def plot_solver_steps(
     os.makedirs(outdir, exist_ok=True)
     plt.savefig(os.path.join(outdir, "solver_steps.png"), bbox_inches="tight", pad_inches=0)
     plt.close(fig)
-
