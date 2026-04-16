@@ -77,12 +77,9 @@ def compute_shape_metrics_batch(
     pred_cpu = pred_x.detach().to("cpu", dtype=torch.float32)
     masks_cpu = masks.detach().to("cpu", dtype=torch.float32)
 
-    if pred_cpu.dim() == 4:
-        pred_np = pred_cpu[:, 0].numpy()
-    elif pred_cpu.dim() == 3:
-        pred_np = pred_cpu.numpy()
-    else:
-        raise ValueError(f"Expected pred_x with shape [B,1,H,W] or [B,H,W], got {pred_cpu.shape}.")
+    if pred_cpu.dim() != 4 or pred_cpu.shape[1] != 1:
+        raise ValueError(f"Expected pred_x with shape [B,1,H,W], got {pred_cpu.shape}.")
+    pred_np = pred_cpu[:, 0].numpy()
 
     if masks_cpu.dim() != 4 or masks_cpu.shape[1] != 1:
         raise ValueError(f"Expected masks with shape [B,1,H,W], got {masks_cpu.shape}.")

@@ -39,8 +39,6 @@ class FlowMatchingModel(nn.Module):
         masks: torch.Tensor,
     ) -> torch.Tensor:
         timesteps = (t * (self.max_timestep - 1)).floor().long()
-        if timesteps.dim() == 0:
-            timesteps = timesteps.expand(x.shape[0])
 
         x_latent = _resize(x, self.latent_size, mode="bilinear")
         if masks.shape[0] != x.shape[0]:

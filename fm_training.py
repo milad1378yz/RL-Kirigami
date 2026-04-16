@@ -10,10 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
-try:
-    from scipy.optimize import linear_sum_assignment
-except Exception:
-    linear_sum_assignment = None
+from scipy.optimize import linear_sum_assignment
 import torch
 import torch.nn.functional as F
 
@@ -63,7 +60,6 @@ class FlowMatchModule(pl.LightningModule):
             "step_size": tr["step_size"],
             "time_points": tr["time_points"],
         }
-        self._warned_ot_missing = False
 
         if tr.get("allow_tf32", False) and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
@@ -83,14 +79,6 @@ class FlowMatchModule(pl.LightningModule):
         }
 
     def _maybe_ot_couple(self, x0: torch.Tensor, x1: torch.Tensor) -> torch.Tensor:
-        if linear_sum_assignment is None:
-            if not self._warned_ot_missing:
-                print("[WARN] SciPy not available; falling back to random coupling.")
-                self._warned_ot_missing = True
-            return x0
-        if x0.shape[0] <= 1:
-            return x0
-
         x0_cpu = x0.detach().to("cpu", dtype=torch.float32)
         x1_cpu = x1.detach().to("cpu", dtype=torch.float32)
         bsz = x0_cpu.shape[0]
