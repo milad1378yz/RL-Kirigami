@@ -30,6 +30,13 @@ def load_config(path):
     return config
 
 
+def resolve_output_paths(out="", preview="", gif_dir=""):
+    out_path = out or os.path.join(HERE, "kirigami_x_dataset.pkl")
+    preview_path = preview or os.path.join(HERE, "preview.png")
+    gif_path = gif_dir or os.path.join(HERE, "gifs")
+    return out_path, preview_path, gif_path
+
+
 def parse_args():
     bootstrap = argparse.ArgumentParser(add_help=False)
     bootstrap.add_argument("--config", default="configs/data_generator.yaml")
@@ -62,9 +69,11 @@ def main():
     if args.x_min <= 0.0:
         raise ValueError("x_min must stay positive because x = a / b.")
 
-    out_path = args.out or os.path.join(HERE, "kirigami_x_dataset.pkl")
-    preview_path = args.preview or os.path.join(HERE, "preview.png")
-    gif_dir = args.gif_dir or os.path.join(HERE, "gifs")
+    out_path, preview_path, gif_dir = resolve_output_paths(
+        out=args.out,
+        preview=args.preview,
+        gif_dir=args.gif_dir,
+    )
 
     rows = args.grid_rows
     cols = args.grid_cols

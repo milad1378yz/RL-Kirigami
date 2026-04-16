@@ -7,6 +7,10 @@ from typing import Optional
 
 from flow_matching.path import AffineProbPath
 from flow_matching.path.scheduler import CondOTScheduler
+from kirigami_training import ensure_lightning_compat
+
+ensure_lightning_compat()
+
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
@@ -18,7 +22,9 @@ except Exception:
 import torch
 import torch.nn.functional as F
 
+from data_generator.utils import build_context
 from kirigami_training.data import KirigamiDataModule
+from kirigami_training.data import prepare_training_config
 from kirigami_training.metrics import compute_shape_metrics_batch
 from kirigami_training.model import build_model
 from kirigami_training.sampling import sample_with_solver
@@ -31,14 +37,12 @@ from kirigami_training.utils import (
     save_epoch_meta,
     save_validation_artifacts,
 )
-from data_generator.utils import build_context
 
 
 def _context_from_config(config: dict) -> dict:
     data_cfg = config["data"]
-    model_cfg = config["model_config"]
-    rows = int(data_cfg.get("grid_rows", model_cfg["input_size"][0]))
-    cols = int(data_cfg.get("grid_cols", model_cfg["input_size"][1]))
+    rows = int(data_cfg["grid_rows"])
+    cols = int(data_cfg["grid_cols"])
     return build_context(rows, cols)
 
 
@@ -338,6 +342,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+    config = prepare_training_config(config)
     run_flow_training(config, config_path=args.config_path, resume=args.resume)
 
 

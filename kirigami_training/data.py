@@ -2,9 +2,16 @@ import pickle
 from functools import partial
 from typing import Optional
 
+from kirigami_training import ensure_lightning_compat
+
+ensure_lightning_compat()
+
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
+
+from data_generator.generator import load_config as load_generator_config
+from data_generator.generator import resolve_output_paths
 
 
 class KirigamiDataset(Dataset):
@@ -24,6 +31,31 @@ class KirigamiDataset(Dataset):
         if self.transform is not None:
             sample = self.transform(sample)
         return sample
+
+
+def resolve_data_settings(data_cfg: dict) -> dict:
+    generator_config_path = data_cfg.get("generator_config", "configs/data_generator.yaml")
+    generator_cfg = load_generator_config(generator_config_path)
+    default_pickle_path, _, _ = resolve_output_paths()
+    pickle_path = data_cfg.get("pickle_path") or default_pickle_path
+
+    return {
+        "generator_config": generator_config_path,
+        "pickle_path": pickle_path,
+        "split_train": data_cfg.get("split_train", "train"),
+        "split_val": data_cfg.get("split_val", "valid"),
+        "grid_rows": int(generator_cfg["grid_rows"]),
+        "grid_cols": int(generator_cfg["grid_cols"]),
+        "x_min": float(generator_cfg["x_min"]),
+        "x_max": float(generator_cfg["x_max"]),
+        "mask_size": (int(generator_cfg["img_h"]), int(generator_cfg["img_w"])),
+    }
+
+
+def prepare_training_config(config: dict) -> dict:
+    data_cfg = resolve_data_settings(config["data"])
+    config["data"].update(data_cfg)
+    return config
 
 
 def load_dataset_split(pickle_path: str, split: str) -> dict:
@@ -89,7 +121,7 @@ class KirigamiDataModule(pl.LightningDataModule):
         self.data_spec = None
 
     def setup(self, stage: Optional[str] = None) -> None:
-        data_cfg = self.config["data"]
+        data_cfg = resolve_data_settings(self.config["data"])
         tr = self.config["training"]
 
         self.train_data = load_dataset_split(data_cfg["pickle_path"], data_cfg["split_train"])

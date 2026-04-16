@@ -34,7 +34,7 @@ py-modules = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["data_generator*", "kirigami_training*", "torchmetrics*"]
+include = ["data_generator*", "kirigami_training*"]
 namespaces = true
 
 [tool.black]
