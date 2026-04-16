@@ -52,6 +52,11 @@ def resolve_data_settings(data_cfg: dict) -> dict:
 def prepare_training_config(config: dict) -> dict:
     data_cfg = resolve_data_settings(config["data"])
     config["data"].update(data_cfg)
+    model_cfg = config.setdefault("model_config", {})
+    input_size = [int(data_cfg["grid_rows"]), int(data_cfg["grid_cols"])]
+    model_cfg.setdefault("input_size", input_size)
+    model_cfg.setdefault("output_size", list(model_cfg["input_size"]))
+    model_cfg.setdefault("mask_size", [int(v) for v in data_cfg["mask_size"]])
     return config
 
 

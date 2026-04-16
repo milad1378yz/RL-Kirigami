@@ -2,10 +2,7 @@ model_config:
   spatial_dims: 2
   in_channels: 1
   out_channels: 1
-  input_size: [10, 10]
-  mask_size: [128, 128]
   latent_size: [32, 32]
-  output_size: [10, 10]
   num_res_blocks: [2, 2, 2, 2]
   num_channels: [64, 128, 256, 256]
   attention_levels: [false, true, true, true]
@@ -48,7 +45,7 @@ training:
   step_size: 0.125
   time_points: 9
 
-  val_freq: 20
+  val_freq: 5
   num_val_samples: 4
   checkpoint_dir: "checkpoints"
   log_dir: "checkpoints/tb"
@@ -93,8 +90,6 @@ rl_training:
   reward_penalty_scale: 1.0
   reward_workers: 8
   val_metric_workers: 8
-  val_freq: 5
-  swa_lr: 2.0e-6
   shape_penalty:
     enabled: true
     build_fail: 5.0
