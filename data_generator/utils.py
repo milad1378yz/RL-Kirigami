@@ -450,7 +450,7 @@ def make_sample(rows, cols, x_matrix, context, height, width):
             context["corners"],
             context["boundary_points"],
         )
-    except np.linalg.LinAlgError:
+    except:
         return None
 
     deployed = deploy(
