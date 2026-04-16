@@ -20,6 +20,7 @@ dependencies = [
     "tensorboard",
     "torch==2.5.1",
     "torchmetrics",
+    "xformers==0.0.28.post3",
 ]
 
 [project.scripts]
