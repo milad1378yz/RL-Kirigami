@@ -8,8 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
-from data_generator.generator import load_config as load_generator_config
-from data_generator.generator import resolve_output_paths
+from data_generator.generator import load_generator_config, resolve_generator_output_paths
 
 
 class KirigamiDataset(Dataset):
@@ -34,7 +33,7 @@ class KirigamiDataset(Dataset):
 def resolve_data_settings(data_cfg: dict) -> dict:
     generator_config_path = data_cfg.get("generator_config", "configs/data_generator.yaml")
     generator_cfg = load_generator_config(generator_config_path)
-    default_pickle_path, _, _ = resolve_output_paths()
+    default_pickle_path, _, _ = resolve_generator_output_paths()
     pickle_path = data_cfg.get("pickle_path") or default_pickle_path
 
     return {

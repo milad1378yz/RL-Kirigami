@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from data_generator.utils import (
-    deploy,
-    deployed_structure,
-    normalize_points,
-    solve_points,
+    center_points,
+    compute_pose_points,
+    compute_structure_points,
+    solve_flat_points,
 )
 
 
@@ -81,7 +81,7 @@ def plot_x_matrix_structure(
 ):
     rows = context["rows"]
     cols = context["cols"]
-    points, _, _ = deployed_structure(
+    points, _, _ = compute_structure_points(
         rows,
         cols,
         x_matrix,
@@ -106,8 +106,8 @@ def save_preview(path, samples, context, n_show):
     for i in range(n_show):
         sample = samples[i]
         x_matrix = sample["metadata"]["x_matrix"]
-        flat_points = solve_points(rows, cols, x_matrix, context["corners"], context["boundary_points"])
-        rectangle = deploy(
+        flat_points = solve_flat_points(rows, cols, x_matrix, context["corners"], context["boundary_points"])
+        rectangle_points = compute_pose_points(
             flat_points,
             context["linkages"],
             context["quads"],
@@ -116,7 +116,7 @@ def save_preview(path, samples, context, n_show):
             cols,
             phi=np.pi,
         )
-        deployed = deploy(
+        deployed_points = compute_pose_points(
             flat_points,
             context["linkages"],
             context["quads"],
@@ -125,20 +125,20 @@ def save_preview(path, samples, context, n_show):
             cols,
             phi=0.0,
         )
-        rectangle = normalize_points(rectangle, phi=np.pi)
-        deployed = normalize_points(deployed)
+        rectangle_points = center_points(rectangle_points, phi=np.pi)
+        deployed_points = center_points(deployed_points)
 
-        all_points = np.vstack([rectangle, deployed])
+        all_points = np.vstack([rectangle_points, deployed_points])
         pad = 0.05 * max(np.ptp(all_points[:, 0]), np.ptp(all_points[:, 1]))
         xlim = (all_points[:, 0].min() - pad, all_points[:, 0].max() + pad)
         ylim = (all_points[:, 1].min() - pad, all_points[:, 1].max() + pad)
 
-        draw_structure(axes[i, 0], rectangle, context["quads"])
+        draw_structure(axes[i, 0], rectangle_points, context["quads"])
         axes[i, 0].set_xlim(*xlim)
         axes[i, 0].set_ylim(*ylim)
         axes[i, 0].set_title("rectangle", fontsize=9)
 
-        draw_structure(axes[i, 1], deployed, context["quads"])
+        draw_structure(axes[i, 1], deployed_points, context["quads"])
         axes[i, 1].set_xlim(*xlim)
         axes[i, 1].set_ylim(*ylim)
         axes[i, 1].set_title("deployed", fontsize=9)
@@ -168,11 +168,11 @@ def render_frame(points, quads, phi, xlim, ylim):
 def save_gif(path, x_matrix, context, n_frames, duration):
     rows = context["rows"]
     cols = context["cols"]
-    flat_points = solve_points(rows, cols, x_matrix, context["corners"], context["boundary_points"])
+    flat_points = solve_flat_points(rows, cols, x_matrix, context["corners"], context["boundary_points"])
     phis = np.linspace(np.pi, 0.0, n_frames)
     frames_points = []
     for phi in phis:
-        points = deploy(
+        points = compute_pose_points(
             flat_points,
             context["linkages"],
             context["quads"],
@@ -181,7 +181,7 @@ def save_gif(path, x_matrix, context, n_frames, duration):
             cols,
             phi=phi,
         )
-        frames_points.append(normalize_points(points, phi=phi))
+        frames_points.append(center_points(points, phi=phi))
 
     all_points = np.vstack(frames_points)
     pad = 0.05 * max(np.ptp(all_points[:, 0]), np.ptp(all_points[:, 1]))

@@ -4,7 +4,7 @@ from typing import Optional
 
 import torch
 
-from data_generator.utils import mask_iou, mask_siou, x_matrix_to_mask_and_metrics
+from data_generator.utils import mask_iou, mask_siou, render_structure_mask_and_metrics
 
 
 def shape_penalty_from_metrics(metrics: dict, cfg: Optional[dict]) -> float:
@@ -92,7 +92,7 @@ def compute_shape_metrics_batch(
         raise ValueError(f"Unsupported reward_metric '{reward_metric}'. Expected 'iou' or 'siou'.")
 
     def _metrics_for_index(i: int):
-        pred_mask, geom_metrics, _, _ = x_matrix_to_mask_and_metrics(
+        pred_mask, geom_metrics, _, _ = render_structure_mask_and_metrics(
             rows,
             cols,
             pred_np[i],

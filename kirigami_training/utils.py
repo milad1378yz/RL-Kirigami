@@ -8,7 +8,7 @@ import torch
 import yaml
 
 from .sampling import plot_solver_steps, sample_with_solver
-from data_generator.utils import mask_overlay_rgb, x_matrix_to_mask_and_metrics
+from data_generator.utils import mask_overlay_rgb, render_structure_mask_and_metrics
 from data_generator.visualization import plot_x_matrix_structure
 
 
@@ -170,7 +170,7 @@ def save_validation_artifacts(
                     real_x = images[i].detach().cpu().numpy().squeeze()
                     gt_mask = masks[i].detach().cpu().numpy().squeeze()
 
-                    pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
+                    pred_mask, _, _, _ = render_structure_mask_and_metrics(
                         context["rows"],
                         context["cols"],
                         pred_x,
