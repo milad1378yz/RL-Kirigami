@@ -83,10 +83,6 @@ def plot_solver_steps(
         gt_mask = mask_batch[i].detach().cpu().numpy().squeeze()
         pred_final = sol[-1, i].detach().cpu().numpy().squeeze()
 
-        pred_mask = None
-        overlay = None
-        iou = None
-        siou = None
         pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
             context["rows"],
             context["cols"],

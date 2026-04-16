@@ -211,7 +211,7 @@ class RLFlowMatchModule(pl.LightningModule):
         batch_rep = _repeat_batch(batch, repeats=group_size)
         x0s = torch.randn_like(batch_rep["images"])
         masks = batch_rep["masks"]
-        metric_masks = batch_rep.get("metric_masks", masks)
+        metric_masks = batch_rep["metric_masks"]
 
         was_training = self.model.training
         self.model.eval()
@@ -344,7 +344,7 @@ class RLFlowMatchModule(pl.LightningModule):
     def validation_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
         loss = self._plain_fm_loss(batch)
         self.log("val/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
-        metric_masks = batch.get("metric_masks", batch["masks"])
+        metric_masks = batch["metric_masks"]
 
         with torch.inference_mode():
             sol = sample_with_solver(

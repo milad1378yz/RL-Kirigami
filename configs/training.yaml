@@ -16,9 +16,6 @@ model_config:
   use_flash_attention: true
   dropout_cattn: 0.1
   max_timestep: 1000
-  with_conditioning: false
-  cross_attention_dim: null
-  conditioning_embedding_num_channels: [32]
 
 data:
   generator_config: "configs/data_generator.yaml"
