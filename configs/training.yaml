@@ -14,8 +14,9 @@ model_config:
   num_head_channels: [32, 64, 128, 128]
   transformer_num_layers: 8
   use_flash_attention: true
-  dropout_cattn: 0.1
+  dropout_cattn: 0.2
   max_timestep: 1000
+  conditioning_embedding_num_channels: [16]
 
 data:
   generator_config: "configs/data_generator.yaml"
