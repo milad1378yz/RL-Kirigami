@@ -265,6 +265,7 @@ class KirigamiDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None) -> None:
         data_cfg = resolve_data_settings(self.config["data"])
         tr = self.config["training"]
+        num_workers = int(tr.get("num_workers", 0))
 
         self.train_data = load_dataset_split(data_cfg["pickle_path"], data_cfg["split_train"])
         self.val_data = load_dataset_split(data_cfg["pickle_path"], data_cfg["split_val"])
@@ -300,8 +301,9 @@ class KirigamiDataModule(pl.LightningDataModule):
             ),
             batch_size=int(tr["batch_size"]),
             shuffle=True,
-            num_workers=int(tr.get("num_workers", 0)),
+            num_workers=num_workers,
             pin_memory=bool(tr.get("pin_memory", False)),
+            persistent_workers=bool(num_workers > 0),
         )
         self.val_loader = DataLoader(
             KirigamiDataset(
@@ -311,8 +313,9 @@ class KirigamiDataModule(pl.LightningDataModule):
             ),
             batch_size=int(tr.get("val_batch_size", tr["batch_size"])),
             shuffle=False,
-            num_workers=int(tr.get("num_workers", 0)),
+            num_workers=num_workers,
             pin_memory=bool(tr.get("pin_memory", False)),
+            persistent_workers=bool(num_workers > 0),
         )
 
     def train_dataloader(self):
