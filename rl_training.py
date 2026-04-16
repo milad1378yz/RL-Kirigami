@@ -178,6 +178,19 @@ class RLFlowMatchModule(pl.LightningModule):
             for param in self.ref_model.parameters():
                 param.requires_grad_(False)
 
+        if tr.get("allow_tf32", False) and torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+        if tr.get("channels_last", False):
+            self.model = self.model.to(memory_format=torch.channels_last)
+            if self.ref_model is not None:
+                self.ref_model = self.ref_model.to(memory_format=torch.channels_last)
+        if tr.get("compile", False) and hasattr(torch, "compile"):
+            compile_mode = tr.get("compile_mode", "default")
+            self.model = torch.compile(self.model, mode=compile_mode)
+            if self.ref_model is not None:
+                self.ref_model = torch.compile(self.ref_model, mode=compile_mode)
+
         channels = int(config["model_config"]["in_channels"])
         in_h, in_w = tuple(config["model_config"]["input_size"])
         mask_h, mask_w = tuple(config["model_config"]["mask_size"])
@@ -490,7 +503,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         precision=precision,
         accumulate_grad_batches=int(tr.get("gradient_accumulation_steps", 1)),
         gradient_clip_val=(float(tr["grad_clip_norm"]) if tr.get("grad_clip_norm") else None),
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=max(1, int(tr.get("val_freq", 1))),
         val_check_interval=tr.get("val_check_interval"),
         enable_progress_bar=True,
         logger=logger,

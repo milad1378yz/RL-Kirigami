@@ -3,17 +3,17 @@ model_config:
   in_channels: 1
   out_channels: 1
   latent_size: [32, 32]
-  num_res_blocks: [2, 2, 2, 2]
-  num_channels: [64, 128, 256, 256]
+  num_res_blocks: [2, 2, 3, 3]
+  num_channels: [64, 128, 256, 320]
   attention_levels: [false, true, true, true]
   norm_num_groups: 32
   resblock_updown: true
-  num_head_channels: [32, 64, 128, 128]
+  num_head_channels: [32, 64, 128, 160]
   transformer_num_layers: 8
   use_flash_attention: true
   dropout_cattn: 0.2
   max_timestep: 1000
-  conditioning_embedding_num_channels: [16]
+  conditioning_embedding_num_channels: [16, 32, 96, 256]
 
 data:
   generator_config: "configs/data_generator.yaml"
@@ -68,7 +68,7 @@ training:
   augment_mask_shift_frac_y: 0.125
 
   mask_threshold: 0.5
-  metric_workers: 4
+  metric_workers: 1
 
 rl_training:
   num_epochs: 20
@@ -88,8 +88,8 @@ rl_training:
   reward_scale: 1.0
   reward_shift: 0.0
   reward_penalty_scale: 1.0
-  reward_workers: 8
-  val_metric_workers: 8
+  reward_workers: 1
+  val_metric_workers: 1
   shape_penalty:
     enabled: true
     build_fail: 5.0
