@@ -23,7 +23,7 @@ data:
 
 training:
   seed: 42
-  num_epochs: 250
+  num_epochs: 1000
   batch_size: 32
   val_batch_size: 32
   lr: 2.0e-5
@@ -45,7 +45,7 @@ training:
   step_size: 0.125
   time_points: 9
 
-  val_freq: 5
+  val_freq: 20
   num_val_samples: 4
   checkpoint_dir: "checkpoints"
   log_dir: "checkpoints/tb"
