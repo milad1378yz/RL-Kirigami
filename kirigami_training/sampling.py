@@ -6,7 +6,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from data_generator.utils import mask_iou, mask_overlay_rgb, mask_siou, x_matrix_to_mask_and_metrics
+from data_generator.utils import (
+    mask_iou,
+    mask_overlay_rgb,
+    mask_siou,
+    render_structure_mask_and_metrics,
+)
 from data_generator.visualization import plot_x_matrix_structure
 
 
@@ -83,7 +88,7 @@ def plot_solver_steps(
         gt_mask = mask_batch[i].detach().cpu().numpy().squeeze()
         pred_final = sol[-1, i].detach().cpu().numpy().squeeze()
 
-        pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
+        pred_mask, _, _, _ = render_structure_mask_and_metrics(
             context["rows"],
             context["cols"],
             pred_final,

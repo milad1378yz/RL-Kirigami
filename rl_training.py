@@ -15,7 +15,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import torch
 import torch.nn.functional as F
 
-from data_generator.utils import build_context
+from data_generator.utils import build_geometry_context
 from kirigami_training.data import KirigamiDataModule
 from kirigami_training.data import prepare_training_config
 from kirigami_training.metrics import compute_shape_metrics_batch
@@ -32,11 +32,11 @@ from kirigami_training.utils import (
 )
 
 
-def _context_from_config(config: dict) -> dict:
+def _geometry_context_from_config(config: dict) -> dict:
     data_cfg = config["data"]
     rows = int(data_cfg["grid_rows"])
     cols = int(data_cfg["grid_cols"])
-    return build_context(rows, cols)
+    return build_geometry_context(rows, cols)
 
 
 def _repeat_batch(batch: dict[str, torch.Tensor], repeats: int) -> dict[str, torch.Tensor]:
@@ -138,7 +138,7 @@ class RLFlowMatchModule(pl.LightningModule):
         )
 
         self.config = config
-        self.context = _context_from_config(config)
+        self.context = _geometry_context_from_config(config)
         self.x_min = config["data"].get("x_min")
         self.x_max = config["data"].get("x_max")
         self.metric_threshold = float(config["training"].get("mask_threshold", 0.5))

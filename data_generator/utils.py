@@ -202,7 +202,7 @@ def square_boundary(rows, cols):
     return np.vstack(corners), np.vstack(points)
 
 
-def build_context(rows, cols):
+def build_geometry_context(rows, cols):
     corners, boundary_points = square_boundary(rows, cols)
     linkages = build_linkages(rows, cols)
     quads = build_quads(rows, cols)
@@ -218,7 +218,7 @@ def build_context(rows, cols):
     }
 
 
-def solve_points(rows, cols, x_matrix, corners, boundary_points):
+def solve_flat_points(rows, cols, x_matrix, corners, boundary_points):
     mat = design_matrix(rows, cols, x_matrix)
     boundary_ids = []
     for side in range(4):
@@ -311,13 +311,13 @@ def best_fit(placed, points, quad_nodes):
     return points @ rot.T + shift
 
 
-def deploy(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
-    deployed = np.full_like(points, np.nan)
+def compute_pose_points(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
+    posed_points = np.full_like(points, np.nan)
 
     def store(linkage_index, local_points):
         for k, node in enumerate(quads[linkage_to_quads[linkage_index]].ravel()):
-            if np.any(np.isnan(deployed[node])):
-                deployed[node] = local_points[k]
+            if np.any(np.isnan(posed_points[node])):
+                posed_points[node] = local_points[k]
 
     _, first = layout_linkage(points, linkages, quads, linkage_to_quads, 0, phi, 0)
     store(0, first)
@@ -330,9 +330,9 @@ def deploy(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
             linkage = linkages[linkage_index]
             if i == 0:
                 sub_phi = signed_angle(
-                    deployed[linkage[0]],
-                    deployed[linkage[1]],
-                    deployed[linkage[3]],
+                    posed_points[linkage[0]],
+                    posed_points[linkage[1]],
+                    posed_points[linkage[3]],
                 )
                 quad_nodes, local_points = layout_linkage(
                     points,
@@ -345,9 +345,9 @@ def deploy(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
                 )
             else:
                 sub_phi = signed_angle(
-                    deployed[linkage[3]],
-                    deployed[linkage[0]],
-                    deployed[linkage[2]],
+                    posed_points[linkage[3]],
+                    posed_points[linkage[0]],
+                    posed_points[linkage[2]],
                 )
                 quad_nodes, local_points = layout_linkage(
                     points,
@@ -358,12 +358,12 @@ def deploy(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
                     sub_phi,
                     3,
                 )
-            store(linkage_index, best_fit(deployed, local_points, quad_nodes))
+            store(linkage_index, best_fit(posed_points, local_points, quad_nodes))
             linkage_index += 1
-    return deployed
+    return posed_points
 
 
-def normalize_points(points, phi=None):
+def center_points(points, phi=None):
     pts = points.copy()
     if phi is not None:
         pts = rotate_points(pts, np.array([0.0, 0.0]), -(np.pi - phi) / 2.0)
@@ -417,10 +417,19 @@ def clip_x_matrix(x_matrix, x_min=None, x_max=None):
     }
 
 
-def deployed_structure(rows, cols, x_matrix, context, phi=0.0, x_min=None, x_max=None, normalize_phi=None):
+def compute_structure_points(
+    rows,
+    cols,
+    x_matrix,
+    context,
+    phi=0.0,
+    x_min=None,
+    x_max=None,
+    normalize_phi=None,
+):
     x_eval, range_stats = clip_x_matrix(x_matrix, x_min=x_min, x_max=x_max)
-    flat_points = solve_points(rows, cols, x_eval, context["corners"], context["boundary_points"])
-    points = deploy(
+    flat_points = solve_flat_points(rows, cols, x_eval, context["corners"], context["boundary_points"])
+    points = compute_pose_points(
         flat_points,
         context["linkages"],
         context["quads"],
@@ -431,7 +440,7 @@ def deployed_structure(rows, cols, x_matrix, context, phi=0.0, x_min=None, x_max
     )
     if np.any(np.isnan(points)):
         raise ValueError("deployment produced NaN coordinates")
-    return normalize_points(points, phi=normalize_phi), x_eval, range_stats
+    return center_points(points, phi=normalize_phi), x_eval, range_stats
 
 
 def overlap_ratio(points, quads, mask, scale):
@@ -480,7 +489,16 @@ def segments_intersect(a, b, c, d):
     return 0.0 < t < 1.0 and 0.0 < u < 1.0
 
 
-def x_matrix_to_mask_and_metrics(rows, cols, x_matrix, context, height, width, x_min=None, x_max=None):
+def render_structure_mask_and_metrics(
+    rows,
+    cols,
+    x_matrix,
+    context,
+    height,
+    width,
+    x_min=None,
+    x_max=None,
+):
     clipped, range_stats = clip_x_matrix(x_matrix, x_min=x_min, x_max=x_max)
     metrics = {
         "ok": False,
@@ -494,7 +512,7 @@ def x_matrix_to_mask_and_metrics(rows, cols, x_matrix, context, height, width, x
     }
 
     try:
-        deployed, clipped, _ = deployed_structure(
+        posed_points, clipped, _ = compute_structure_points(
             rows,
             cols,
             clipped,
@@ -503,18 +521,18 @@ def x_matrix_to_mask_and_metrics(rows, cols, x_matrix, context, height, width, x
             normalize_phi=None,
         )
         invalid_count = sum(
-            not quad_is_valid(deployed[np.asarray(quad, dtype=int)]) for quad in context["quads"]
+            not quad_is_valid(posed_points[np.asarray(quad, dtype=int)]) for quad in context["quads"]
         )
-        mask, scale = rasterize(deployed, context["quads"], height, width)
+        mask, scale = rasterize(posed_points, context["quads"], height, width)
         metrics.update(
             {
                 "ok": True,
                 "invalid_quad_count": int(invalid_count),
-                "overlap_ratio": float(overlap_ratio(deployed, context["quads"], mask, scale)),
+                "overlap_ratio": float(overlap_ratio(posed_points, context["quads"], mask, scale)),
                 "fill_ratio": float(mask.mean()),
             }
         )
-        return mask, metrics, deployed, clipped
+        return mask, metrics, posed_points, clipped
     except Exception as exc:
         metrics["error"] = str(exc)
         return np.zeros((height, width), dtype=np.float32), metrics, None, clipped
@@ -643,8 +661,8 @@ def mask_overlay_rgb(pred_mask, gt_mask, threshold=0.5):
     return overlay
 
 
-def make_sample(rows, cols, x_matrix, context, height, width):
-    mask, metrics, _, clipped = x_matrix_to_mask_and_metrics(
+def build_dataset_entry(rows, cols, x_matrix, context, height, width):
+    mask, metrics, _, clipped = render_structure_mask_and_metrics(
         rows,
         cols,
         x_matrix,
