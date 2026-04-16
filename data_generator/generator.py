@@ -51,6 +51,7 @@ def parse_args():
     parser.add_argument("--img-w", type=int, default=config["img_w"])
     parser.add_argument("--train", type=int, default=config["train"])
     parser.add_argument("--valid", type=int, default=config["valid"])
+    parser.add_argument("--test", type=int, default=config.get("test", 0))
     parser.add_argument("--x-min", type=float, default=config["x_min"])
     parser.add_argument("--x-max", type=float, default=config["x_max"])
     parser.add_argument("--seed", type=int, default=config["seed"])
@@ -101,15 +102,26 @@ def main():
         args.x_max,
         geometry_context,
     )
+    test_samples, test_attempts = generate_valid_samples(
+        rows,
+        cols,
+        args.img_h,
+        args.img_w,
+        args.test,
+        np.random.default_rng(args.seed + 2),
+        args.x_min,
+        args.x_max,
+        geometry_context,
+    )
 
     with open(out_path, "wb") as handle:
         pickle.dump(
-            {"train": train_samples, "valid": valid_samples},
+            {"train": train_samples, "valid": valid_samples, "test": test_samples},
             handle,
             protocol=pickle.HIGHEST_PROTOCOL,
         )
 
-    samples_for_visuals = train_samples or valid_samples
+    samples_for_visuals = train_samples or valid_samples or test_samples
     save_preview(preview_path, samples_for_visuals, geometry_context, args.preview_count)
     gif_paths = save_gifs(
         gif_dir,
@@ -126,6 +138,7 @@ def main():
         print(f"saved gifs: {gif_dir}")
     print(f"accepted train={len(train_samples)}/{args.train} after {train_attempts} attempts")
     print(f"accepted valid={len(valid_samples)}/{args.valid} after {valid_attempts} attempts")
+    print(f"accepted test={len(test_samples)}/{args.test} after {test_attempts} attempts")
 
 
 if __name__ == "__main__":
