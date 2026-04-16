@@ -56,7 +56,6 @@ class FlowMatchModule(pl.LightningModule):
         self.path = AffineProbPath(scheduler=CondOTScheduler())
 
         tr = config["training"]
-        self.lr = float(tr["lr"])
         self.val_freq = int(tr["val_freq"])
         self.num_val_samples = int(tr["num_val_samples"])
         self.coupling_mode = self._resolve_coupling_mode(tr.get("coupling", "random"))
@@ -148,7 +147,7 @@ class FlowMatchModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         images = batch["images"]
         masks = batch["masks"]
-        metric_masks = batch.get("metric_masks", masks)
+        metric_masks = batch["metric_masks"]
         loss = self._flow_matching_loss(images, masks)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
