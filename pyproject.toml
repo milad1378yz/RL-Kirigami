@@ -9,18 +9,32 @@ description = "Kirigami data generation and visualization utilities."
 readme = "README.md"
 requires-python = ">=3.9,<3.13"
 dependencies = [
+    "flow_matching==1.0.10",
     "imageio",
     "matplotlib",
+    "monai-generative==0.2.3",
     "numpy",
+    "pytorch-lightning==2.5.3",
     "PyYAML",
+    "scipy",
+    "tensorboard",
+    "torch==2.5.1",
 ]
 
 [project.scripts]
 rl-kirigami-generate = "data_generator.generator:main"
+rl-kirigami-train-fm = "fm_training:main"
+rl-kirigami-train-rl = "rl_training:main"
+
+[tool.setuptools]
+py-modules = [
+    "fm_training",
+    "rl_training",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["data_generator*"]
+include = ["data_generator*", "kirigami_training*", "torchmetrics*"]
 namespaces = true
 
 [tool.black]

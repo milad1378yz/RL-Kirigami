@@ -395,6 +395,44 @@ def rasterize(points, quads, height, width):
     return mask, scale
 
 
+def clip_x_matrix(x_matrix, x_min=None, x_max=None):
+    values = np.asarray(x_matrix, dtype=np.float64)
+    clipped = values.copy()
+    lower_violation = np.zeros_like(values)
+    upper_violation = np.zeros_like(values)
+
+    if x_min is not None:
+        lower_violation = np.maximum(x_min - values, 0.0)
+        clipped = np.maximum(clipped, x_min)
+    if x_max is not None:
+        upper_violation = np.maximum(values - x_max, 0.0)
+        clipped = np.minimum(clipped, x_max)
+
+    violation = lower_violation + upper_violation
+    return clipped, {
+        "range_violation_l1": float(np.mean(violation)) if violation.size else 0.0,
+        "range_violation_max": float(np.max(violation)) if violation.size else 0.0,
+        "clipped_fraction": float(np.mean(violation > 0.0)) if violation.size else 0.0,
+    }
+
+
+def deployed_structure(rows, cols, x_matrix, context, phi=0.0, x_min=None, x_max=None, normalize_phi=None):
+    x_eval, range_stats = clip_x_matrix(x_matrix, x_min=x_min, x_max=x_max)
+    flat_points = solve_points(rows, cols, x_eval, context["corners"], context["boundary_points"])
+    points = deploy(
+        flat_points,
+        context["linkages"],
+        context["quads"],
+        context["linkage_to_quads"],
+        rows,
+        cols,
+        phi=phi,
+    )
+    if np.any(np.isnan(points)):
+        raise ValueError("deployment produced NaN coordinates")
+    return normalize_points(points, phi=normalize_phi), x_eval, range_stats
+
+
 def overlap_ratio(points, quads, mask, scale):
     union_area = float(mask.sum()) / (scale * scale)
     total = 0.0
@@ -441,47 +479,97 @@ def segments_intersect(a, b, c, d):
     return 0.0 < t < 1.0 and 0.0 < u < 1.0
 
 
-def make_sample(rows, cols, x_matrix, context, height, width):
+def x_matrix_to_mask_and_metrics(rows, cols, x_matrix, context, height, width, x_min=None, x_max=None):
+    clipped, range_stats = clip_x_matrix(x_matrix, x_min=x_min, x_max=x_max)
+    metrics = {
+        "ok": False,
+        "invalid_quad_count": 0,
+        "overlap_ratio": 1.0,
+        "fill_ratio": 0.0,
+        "range_violation_l1": range_stats["range_violation_l1"],
+        "range_violation_max": range_stats["range_violation_max"],
+        "clipped_fraction": range_stats["clipped_fraction"],
+        "error": None,
+    }
+
     try:
-        flat_points = solve_points(
+        deployed, clipped, _ = deployed_structure(
             rows,
             cols,
-            x_matrix,
-            context["corners"],
-            context["boundary_points"],
+            clipped,
+            context,
+            phi=0.0,
+            normalize_phi=None,
         )
-    except:
-        return None
+        invalid_count = sum(
+            not quad_is_valid(deployed[np.asarray(quad, dtype=int)]) for quad in context["quads"]
+        )
+        mask, scale = rasterize(deployed, context["quads"], height, width)
+        metrics.update(
+            {
+                "ok": True,
+                "invalid_quad_count": int(invalid_count),
+                "overlap_ratio": float(overlap_ratio(deployed, context["quads"], mask, scale)),
+                "fill_ratio": float(mask.mean()),
+            }
+        )
+        return mask, metrics, deployed, clipped
+    except Exception as exc:
+        metrics["error"] = str(exc)
+        return np.zeros((height, width), dtype=np.float32), metrics, None, clipped
 
-    deployed = deploy(
-        flat_points,
-        context["linkages"],
-        context["quads"],
-        context["linkage_to_quads"],
+
+def mask_iou(pred_mask, gt_mask, threshold=0.5):
+    pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
+    gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
+    union = np.logical_or(pred, gt).sum()
+    if union == 0:
+        return 0.0
+    return float(np.logical_and(pred, gt).sum() / union)
+
+
+def mask_dice(pred_mask, gt_mask, threshold=0.5):
+    pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
+    gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
+    denom = pred.sum() + gt.sum()
+    if denom == 0:
+        return 0.0
+    return float(2.0 * np.logical_and(pred, gt).sum() / denom)
+
+
+def mask_overlay_rgb(pred_mask, gt_mask, threshold=0.5):
+    pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
+    gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
+    overlay = np.zeros(pred.shape + (3,), dtype=np.float32)
+    overlay[np.logical_and(pred, gt)] = (0.0, 1.0, 0.0)
+    overlay[np.logical_and(pred, np.logical_not(gt))] = (1.0, 0.0, 0.0)
+    overlay[np.logical_and(np.logical_not(pred), gt)] = (0.0, 0.0, 1.0)
+    return overlay
+
+
+def make_sample(rows, cols, x_matrix, context, height, width):
+    mask, metrics, _, clipped = x_matrix_to_mask_and_metrics(
         rows,
         cols,
-        phi=0.0,
+        x_matrix,
+        context,
+        height,
+        width,
     )
-    if np.any(np.isnan(deployed)):
+    if not metrics["ok"] or metrics["invalid_quad_count"] > 0:
         return None
-    if any(not quad_is_valid(deployed[np.asarray(quad, dtype=int)]) for quad in context["quads"]):
+    if metrics["fill_ratio"] < MASK_MIN_FILL or metrics["fill_ratio"] > MASK_MAX_FILL:
         return None
-
-    deployed = normalize_points(deployed)
-    mask, scale = rasterize(deployed, context["quads"], height, width)
-    fill = float(mask.mean())
-    if fill < MASK_MIN_FILL or fill > MASK_MAX_FILL:
-        return None
-    if overlap_ratio(deployed, context["quads"], mask, scale) > MAX_OVERLAP:
+    if metrics["overlap_ratio"] > MAX_OVERLAP:
         return None
 
     return {
-        "image": x_matrix.astype(np.float32)[None, :, :],
+        "image": clipped.astype(np.float32)[None, :, :],
         "mask": mask[None, :, :],
         "metadata": {
             "grid_rows": rows,
             "grid_cols": cols,
             "phi_mask": 0.0,
-            "x_matrix": x_matrix.astype(np.float32),
+            "x_matrix": clipped.astype(np.float32),
         },
     }
