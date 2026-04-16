@@ -57,6 +57,7 @@ Edit `configs/data_generator.yaml` for data-generation hyperparameters:
 - `img_h`, `img_w`: rendered mask resolution
 - `train`, `valid`: dataset sizes
 - `x_min`, `x_max`: allowed x-value range
+- `sampler`: `structured` family mixture or the `uniform` iid sampler
 - `seed`: dataset seed
 
 ### Shared training settings
