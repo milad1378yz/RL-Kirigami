@@ -45,7 +45,6 @@ training:
   method: "euler"
   step_size: 0.125
   time_points: 9
-  coupling: "ot"
 
   val_freq: 20
   num_val_samples: 4
