@@ -22,13 +22,9 @@ model_config:
   conditioning_embedding_num_channels: [32]
 
 data:
-  pickle_path: "data_generator/kirigami_x_dataset.pkl"
+  generator_config: "configs/data_generator.yaml"
   split_train: "train"
   split_val: "valid"
-  grid_rows: 10
-  grid_cols: 10
-  x_min: 0.2
-  x_max: 5.0
 
 training:
   seed: 42
@@ -108,4 +104,3 @@ rl_training:
     fill_error: 2.0
     range_violation: 2.0
     clipped_fraction: 0.5
-
