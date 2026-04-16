@@ -8,25 +8,10 @@ This repo has three main entry points:
 
 ## Setup
 
-Use your own Python environment, then install the project in editable mode.
+If you want the convenience CLI wrappers from `pyproject.toml`, an editable install is optional:
 
 ```bash
 python -m pip install -e .
-```
-
-That editable install exposes these CLI commands from `pyproject.toml`:
-
-- `rl-kirigami-generate`
-- `rl-kirigami-train-fm`
-- `rl-kirigami-train-rl`
-
-## Optional package build
-
-If you want a wheel/sdist instead of an editable install:
-
-```bash
-python -m pip install build
-python -m build
 ```
 
 ## Main runs
@@ -34,7 +19,7 @@ python -m build
 ### 1. Generate the dataset
 
 ```bash
-rl-kirigami-generate --config configs/data_generator.yaml
+python -m data_generator.generator --config configs/data_generator.yaml
 ```
 
 Default outputs:
@@ -46,7 +31,7 @@ Default outputs:
 ### 2. Train the flow-matching model
 
 ```bash
-rl-kirigami-train-fm --config_path configs/training.yaml --resume last
+python fm_training.py --config_path configs/training.yaml --resume last
 ```
 
 Outputs go under:
@@ -57,7 +42,7 @@ Outputs go under:
 ### 3. Run RL fine-tuning
 
 ```bash
-rl-kirigami-train-rl --config_path configs/training.yaml --init_from last --resume last
+python rl_training.py --config_path configs/training.yaml --init_from last --resume last
 ```
 
 `--init_from last` loads the latest flow-matching checkpoint from the base run. RL checkpoints are written to `checkpoints/<run_name>_RL/`.
