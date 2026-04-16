@@ -19,6 +19,7 @@ dependencies = [
     "scipy",
     "tensorboard",
     "torch==2.5.1",
+    "torchmetrics",
 ]
 
 [project.scripts]

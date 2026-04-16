@@ -8,10 +8,6 @@ from typing import Optional
 
 from flow_matching.path import AffineProbPath
 from flow_matching.path.scheduler import CondOTScheduler
-from kirigami_training import ensure_lightning_compat
-
-ensure_lightning_compat()
-
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
