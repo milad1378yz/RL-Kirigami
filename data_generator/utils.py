@@ -1,3 +1,4 @@
+import math
 import os
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/kirigami_x_mplconfig")
@@ -528,13 +529,108 @@ def mask_iou(pred_mask, gt_mask, threshold=0.5):
     return float(np.logical_and(pred, gt).sum() / union)
 
 
-def mask_dice(pred_mask, gt_mask, threshold=0.5):
+def _mask_similarity_stats(mask):
+    ys, xs = np.nonzero(mask)
+    area = int(xs.size)
+    if area == 0:
+        return None
+
+    coords = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
+    center = coords.mean(axis=0)
+    centered = coords - center
+    if area >= 2:
+        cov = (centered.T @ centered) / float(area)
+        evals, evecs = np.linalg.eigh(cov)
+        major = evecs[:, int(np.argmax(evals))]
+        angle = math.atan2(float(major[1]), float(major[0]))
+        major_val = max(float(evals.max()), 0.0)
+        minor_val = max(float(evals.min()), 0.0)
+        anisotropy = (major_val + 1e-6) / (minor_val + 1e-6)
+    else:
+        angle = 0.0
+        anisotropy = 1.0
+
+    return {
+        "area": float(area),
+        "center": center,
+        "angle": angle,
+        "anisotropy": anisotropy,
+    }
+
+
+def _warp_mask_similarity(mask, *, scale, angle, src_center, dst_center, output_shape):
+    height, width = output_shape
+    yy, xx = np.indices((height, width), dtype=np.float64)
+    x_rel = xx - float(dst_center[0])
+    y_rel = yy - float(dst_center[1])
+
+    c = math.cos(float(angle))
+    s = math.sin(float(angle))
+    safe_scale = max(float(scale), 1e-6)
+    x_in = (c * x_rel + s * y_rel) / safe_scale + float(src_center[0])
+    y_in = (-s * x_rel + c * y_rel) / safe_scale + float(src_center[1])
+
+    xi = np.rint(x_in).astype(np.int64)
+    yi = np.rint(y_in).astype(np.int64)
+    inside = (xi >= 0) & (xi < width) & (yi >= 0) & (yi < height)
+
+    warped = np.zeros((height, width), dtype=bool)
+    warped[inside] = mask[yi[inside], xi[inside]]
+    return warped
+
+
+def mask_siou(
+    pred_mask,
+    gt_mask,
+    threshold=0.5,
+    *,
+    isotropy_ratio_threshold=1.15,
+    coarse_angle_steps=24,
+):
     pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
     gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
-    denom = pred.sum() + gt.sum()
-    if denom == 0:
+
+    pred_stats = _mask_similarity_stats(pred)
+    gt_stats = _mask_similarity_stats(gt)
+    if pred_stats is None or gt_stats is None:
         return 0.0
-    return float(2.0 * np.logical_and(pred, gt).sum() / denom)
+
+    scale = math.sqrt(pred_stats["area"] / max(gt_stats["area"], 1e-6))
+    base_angle = float(pred_stats["angle"] - gt_stats["angle"])
+    candidates = [base_angle, base_angle + math.pi]
+    if (
+        pred_stats["anisotropy"] < float(isotropy_ratio_threshold)
+        or gt_stats["anisotropy"] < float(isotropy_ratio_threshold)
+    ):
+        candidates.extend((2.0 * math.pi * k) / int(coarse_angle_steps) for k in range(int(coarse_angle_steps)))
+
+    unique = []
+    seen = set()
+    period = 2.0 * math.pi
+    for angle in candidates:
+        key = round(float(angle % period), 6)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(float(angle))
+
+    best = 0.0
+    for angle in unique:
+        aligned_gt = _warp_mask_similarity(
+            gt,
+            scale=scale,
+            angle=angle,
+            src_center=gt_stats["center"],
+            dst_center=pred_stats["center"],
+            output_shape=pred.shape,
+        )
+        union = np.logical_or(pred, aligned_gt).sum()
+        if union == 0:
+            continue
+        score = float(np.logical_and(pred, aligned_gt).sum() / union)
+        if score > best:
+            best = score
+    return best
 
 
 def mask_overlay_rgb(pred_mask, gt_mask, threshold=0.5):

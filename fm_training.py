@@ -150,6 +150,7 @@ class FlowMatchModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         images = batch["images"]
         masks = batch["masks"] if self.use_controlnet else None
+        metric_masks = batch.get("metric_masks", masks) if self.use_controlnet else None
         loss = self._flow_matching_loss(images, masks)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
@@ -168,7 +169,7 @@ class FlowMatchModule(pl.LightningModule):
 
         metrics = compute_shape_metrics_batch(
             pred_x,
-            masks,
+            metric_masks,
             self.context,
             x_min=self.x_min,
             x_max=self.x_max,
@@ -178,7 +179,7 @@ class FlowMatchModule(pl.LightningModule):
         )
 
         self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val/Dice", metrics["dice"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val/SIoU", metrics["siou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
         self.log(
             "val/fill_error_mean",
             metrics["fill_error"].mean(),
@@ -264,7 +265,7 @@ def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -
 
     logger = TensorBoardLogger(save_dir=tb_root, name=run_name, version=tb_version)
 
-    ckpt_monitor = str(tr.get("ckpt_monitor", "") or "").strip() or "val/IoU"
+    ckpt_monitor = str(tr.get("ckpt_monitor", "") or "").strip() or "val/SIoU"
     ckpt_mode = str(tr.get("ckpt_mode", "") or "").strip() or "max"
     ckpt_filename = str(tr.get("ckpt_filename", "") or "").strip()
     if not ckpt_filename:
