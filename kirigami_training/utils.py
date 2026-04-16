@@ -126,7 +126,6 @@ def save_validation_artifacts(
     solver_config: dict,
     device: torch.device,
     outdir: str,
-    use_controlnet: bool,
     num_samples: int,
     context: dict,
     x_min: Optional[float],
@@ -148,7 +147,7 @@ def save_validation_artifacts(
     with torch.inference_mode():
         for batch in dataloader:
             images = batch["images"].to(device)
-            masks = batch["masks"].to(device) if use_controlnet else None
+            masks = batch["masks"].to(device)
 
             need_plot = plot_steps and not did_plot
             sol = sample_with_solver(
@@ -169,25 +168,23 @@ def save_validation_artifacts(
 
                     pred_x = final_images[i].detach().cpu().numpy().squeeze()
                     real_x = images[i].detach().cpu().numpy().squeeze()
-                    gt_mask = masks[i].detach().cpu().numpy().squeeze() if masks is not None else None
+                    gt_mask = masks[i].detach().cpu().numpy().squeeze()
 
-                    pred_mask = None
-                    if gt_mask is not None:
-                        pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
-                            context["rows"],
-                            context["cols"],
-                            pred_x,
-                            context,
-                            gt_mask.shape[-2],
-                            gt_mask.shape[-1],
-                            x_min=x_min,
-                            x_max=x_max,
-                        )
-                        _save_grayscale(os.path.join(sample_dir, "mask.png"), gt_mask)
-                        _save_rgb(
-                            os.path.join(sample_dir, "overlay.png"),
-                            mask_overlay_rgb(pred_mask, gt_mask),
-                        )
+                    pred_mask, _, _, _ = x_matrix_to_mask_and_metrics(
+                        context["rows"],
+                        context["cols"],
+                        pred_x,
+                        context,
+                        gt_mask.shape[-2],
+                        gt_mask.shape[-1],
+                        x_min=x_min,
+                        x_max=x_max,
+                    )
+                    _save_grayscale(os.path.join(sample_dir, "mask.png"), gt_mask)
+                    _save_rgb(
+                        os.path.join(sample_dir, "overlay.png"),
+                        mask_overlay_rgb(pred_mask, gt_mask),
+                    )
 
                     _save_structure_image(
                         os.path.join(sample_dir, "gen.png"),
@@ -205,8 +202,7 @@ def save_validation_artifacts(
                         x_min=x_min,
                         x_max=x_max,
                     )
-                    if pred_mask is not None:
-                        _save_grayscale(os.path.join(sample_dir, "gen_mask.png"), pred_mask)
+                    _save_grayscale(os.path.join(sample_dir, "gen_mask.png"), pred_mask)
                     count += 1
             else:
                 count += int(final_images.size(0))

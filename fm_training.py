@@ -3,7 +3,6 @@ import glob
 import os
 import time
 import warnings
-from typing import Optional
 
 from flow_matching.path import AffineProbPath
 from flow_matching.path.scheduler import CondOTScheduler
@@ -54,7 +53,6 @@ class FlowMatchModule(pl.LightningModule):
         self.metric_workers = int(config["training"].get("metric_workers", 1))
 
         self.model = build_model(config, device=torch.device("cpu"))
-        self.use_controlnet = bool(config["model_config"]["use_controlnet"])
         self.path = AffineProbPath(scheduler=CondOTScheduler())
 
         tr = config["training"]
@@ -83,7 +81,7 @@ class FlowMatchModule(pl.LightningModule):
         self.example_input_array = {
             "x": torch.randn(2, channels, in_h, in_w),
             "t": torch.rand(2),
-            "masks": (torch.randn(2, 1, mask_h, mask_w) if self.use_controlnet else None),
+            "masks": torch.randn(2, 1, mask_h, mask_w),
         }
 
     @staticmethod
@@ -123,14 +121,14 @@ class FlowMatchModule(pl.LightningModule):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        masks: Optional[torch.Tensor] = None,
+        masks: torch.Tensor,
     ):
         return self.model(x, t, masks)
 
     def _flow_matching_loss(
         self,
         images: torch.Tensor,
-        masks: Optional[torch.Tensor],
+        masks: torch.Tensor,
     ) -> torch.Tensor:
         x0 = torch.randn_like(images)
         x0 = self._maybe_ot_couple(x0, images)
@@ -141,7 +139,7 @@ class FlowMatchModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         images = batch["images"]
-        masks = batch["masks"] if self.use_controlnet else None
+        masks = batch["masks"]
         loss = self._flow_matching_loss(images, masks)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], on_step=True)
@@ -149,13 +147,10 @@ class FlowMatchModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         images = batch["images"]
-        masks = batch["masks"] if self.use_controlnet else None
-        metric_masks = batch.get("metric_masks", masks) if self.use_controlnet else None
+        masks = batch["masks"]
+        metric_masks = batch.get("metric_masks", masks)
         loss = self._flow_matching_loss(images, masks)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
-
-        if masks is None:
-            return
 
         with torch.no_grad():
             sol = sample_with_solver(
@@ -239,7 +234,6 @@ class FlowMatchModule(pl.LightningModule):
             solver_config=self.solver_config,
             device=self.device,
             outdir=outdir,
-            use_controlnet=self.use_controlnet,
             num_samples=self.num_val_samples,
             context=self.context,
             x_min=self.x_min,
