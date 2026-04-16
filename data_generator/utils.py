@@ -272,46 +272,71 @@ def layout_linkage(points, linkages, quads, linkage_to_quads, linkage_index, phi
     return linkage_quads, np.roll(qp, 4 * phi_index, axis=0)
 
 
-def best_fit(placed, points, quad_nodes):
-    src = []
-    dst = []
-    seen = set()
-    for k, node in enumerate(np.asarray(quad_nodes).ravel()):
-        if node in seen or np.any(np.isnan(placed[node])):
-            continue
-        seen.add(node)
-        src.append(points[k])
-        dst.append(placed[node])
-    if not src:
-        return points
-    src = np.asarray(src)
-    dst = np.asarray(dst)
-    if len(src) == 1:
-        return points + (dst[0] - src[0])
-
-    best = (0, 1, -1.0)
-    for i in range(len(src)):
-        for j in range(i + 1, len(src)):
-            dist = float(np.linalg.norm(dst[j] - dst[i]))
-            if dist > best[2]:
-                best = (i, j, dist)
-    i, j, _ = best
-    va = src[j] - src[i]
-    vb = dst[j] - dst[i]
-    na = np.linalg.norm(va)
-    nb = np.linalg.norm(vb)
-    if na < 1e-12 or nb < 1e-12:
-        return points + (dst[0] - src[0])
-    va /= na
-    vb /= nb
-    c = float(va @ vb)
-    s = float(va[0] * vb[1] - va[1] * vb[0])
-    rot = np.array([[c, -s], [s, c]])
-    shift = dst[i] - rot @ src[i]
-    return points @ rot.T + shift
+def _checkerboard_phi(i, j, phi):
+    return float(phi) if (i + j) % 2 == 0 else float(np.pi - phi)
 
 
-def compute_pose_points(points, linkages, quads, linkage_to_quads, rows, cols, phi=0.0):
+def _decode_linkage_points(p0, p3, x_value, phi):
+    seed = np.asarray(p3, dtype=np.float64) - np.asarray(p0, dtype=np.float64)
+    c = np.cos(-float(phi))
+    s = np.sin(-float(phi))
+    rot = np.array([[c, -s], [s, c]], dtype=np.float64)
+    edge = float(x_value) * (rot @ seed)
+    return np.vstack([p0, p0 + edge, p3 + edge, p3])
+
+
+def _rigid_fit(src, dst):
+    src = np.asarray(src, dtype=np.float64)
+    dst = np.asarray(dst, dtype=np.float64)
+    if src.shape != dst.shape:
+        raise ValueError(f"Rigid-fit point sets must have the same shape, got {src.shape} and {dst.shape}.")
+    if src.ndim != 2 or src.shape[1] != 2:
+        raise ValueError(f"Rigid-fit expects 2D point arrays, got {src.shape}.")
+    if src.shape[0] == 0:
+        raise ValueError("Rigid-fit requires at least one point.")
+
+    src_center = src.mean(axis=0)
+    dst_center = dst.mean(axis=0)
+    src0 = src - src_center
+    dst0 = dst - dst_center
+    cross = src0.T @ dst0
+    u, _, vt = np.linalg.svd(cross)
+    rot = vt.T @ u.T
+    if np.linalg.det(rot) < 0.0:
+        vt[-1] *= -1.0
+        rot = vt.T @ u.T
+    shift = dst_center - src_center @ rot.T
+    return rot, shift
+
+
+def _cluster_linkage_points(linkage, quad_nodes, cluster_points):
+    quad_nodes_flat = np.asarray(quad_nodes).ravel()
+    linkage_points = []
+    for node in linkage:
+        matches = np.flatnonzero(quad_nodes_flat == node)
+        if matches.size == 0:
+            raise ValueError(f"Linkage node {node} not present in its local cluster.")
+        linkage_points.append(cluster_points[int(matches[0])])
+    return np.vstack(linkage_points)
+
+
+def compute_pose_points(
+    points,
+    linkages,
+    quads,
+    linkage_to_quads,
+    rows,
+    cols,
+    phi=0.0,
+    x_matrix=None,
+):
+    if x_matrix is None:
+        raise ValueError("compute_pose_points now requires x_matrix and no longer supports the legacy decoder.")
+
+    x_values = np.asarray(x_matrix, dtype=np.float64)
+    if x_values.shape != (rows, cols):
+        raise ValueError(f"x_matrix must have shape {(rows, cols)}")
+
     posed_points = np.full_like(points, np.nan)
 
     def store(linkage_index, local_points):
@@ -319,47 +344,65 @@ def compute_pose_points(points, linkages, quads, linkage_to_quads, rows, cols, p
             if np.any(np.isnan(posed_points[node])):
                 posed_points[node] = local_points[k]
 
-    _, first = layout_linkage(points, linkages, quads, linkage_to_quads, 0, phi, 0)
-    store(0, first)
-
-    linkage_index = 1
+    linkage_index = 0
     for i in range(rows):
         for j in range(cols):
-            if i == 0 and j == 0:
-                continue
             linkage = linkages[linkage_index]
-            if i == 0:
-                sub_phi = signed_angle(
+            p0 = (
+                posed_points[linkage[0]]
+                if np.all(np.isfinite(posed_points[linkage[0]]))
+                else points[linkage[0]]
+            )
+            p3 = (
+                posed_points[linkage[3]]
+                if np.all(np.isfinite(posed_points[linkage[3]]))
+                else points[linkage[3]]
+            )
+            target_linkage = _decode_linkage_points(
+                p0,
+                p3,
+                x_values[i, j],
+                _checkerboard_phi(i, j, phi),
+            )
+
+            if i == 0 and j == 0:
+                local_phi = float(phi)
+                phi_index = 0
+            elif i == 0:
+                local_phi = signed_angle(
                     posed_points[linkage[0]],
                     posed_points[linkage[1]],
                     posed_points[linkage[3]],
                 )
-                quad_nodes, local_points = layout_linkage(
-                    points,
-                    linkages,
-                    quads,
-                    linkage_to_quads,
-                    linkage_index,
-                    sub_phi,
-                    0,
-                )
+                phi_index = 0
             else:
-                sub_phi = signed_angle(
+                local_phi = signed_angle(
                     posed_points[linkage[3]],
                     posed_points[linkage[0]],
                     posed_points[linkage[2]],
                 )
-                quad_nodes, local_points = layout_linkage(
-                    points,
-                    linkages,
-                    quads,
-                    linkage_to_quads,
-                    linkage_index,
-                    sub_phi,
-                    3,
-                )
-            store(linkage_index, best_fit(posed_points, local_points, quad_nodes))
+                phi_index = 3
+
+            quad_nodes, local_points = layout_linkage(
+                points,
+                linkages,
+                quads,
+                linkage_to_quads,
+                linkage_index,
+                local_phi,
+                phi_index,
+            )
+            cluster_linkage = _cluster_linkage_points(linkage, quad_nodes, local_points)
+            rot, shift = _rigid_fit(cluster_linkage, target_linkage)
+            aligned_points = local_points @ rot.T + shift
+            store(linkage_index, aligned_points)
+
+            # Shared linkage nodes follow the direct marching decode exactly.
+            for corner_idx, node in enumerate(linkage):
+                posed_points[node] = target_linkage[corner_idx]
+
             linkage_index += 1
+
     return posed_points
 
 
@@ -437,6 +480,7 @@ def compute_structure_points(
         rows,
         cols,
         phi=phi,
+        x_matrix=x_eval,
     )
     if np.any(np.isnan(points)):
         raise ValueError("deployment produced NaN coordinates")

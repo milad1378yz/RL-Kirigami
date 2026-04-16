@@ -115,6 +115,7 @@ def save_preview(path, samples, context, n_show):
             rows,
             cols,
             phi=np.pi,
+            x_matrix=x_matrix,
         )
         deployed_points = compute_pose_points(
             flat_points,
@@ -124,6 +125,7 @@ def save_preview(path, samples, context, n_show):
             rows,
             cols,
             phi=0.0,
+            x_matrix=x_matrix,
         )
         rectangle_points = center_points(rectangle_points, phi=np.pi)
         deployed_points = center_points(deployed_points)
@@ -180,6 +182,7 @@ def save_gif(path, x_matrix, context, n_frames, duration):
             rows,
             cols,
             phi=phi,
+            x_matrix=x_matrix,
         )
         frames_points.append(center_points(points, phi=phi))
 
