@@ -2,10 +2,6 @@ import pickle
 from functools import partial
 from typing import Optional
 
-from kirigami_training import ensure_lightning_compat
-
-ensure_lightning_compat()
-
 import pytorch_lightning as pl
 import torch
 from torch.utils.data import DataLoader, Dataset
