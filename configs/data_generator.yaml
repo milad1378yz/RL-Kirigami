@@ -3,7 +3,7 @@ grid_cols: 10
 img_h: 128
 img_w: 128
 train: 2000
-valid: 200
+valid: 500
 x_min: 0.2
 x_max: 5.0
 seed: 42
