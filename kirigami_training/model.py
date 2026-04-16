@@ -23,6 +23,7 @@ class FlowMatchingModel(nn.Module):
         *,
         max_timestep: int = 1000,
         latent_size: Tuple[int, int] = (32, 32),
+        conditioning_size: Tuple[int, int] = (128, 128),
         output_size: Tuple[int, int] = (10, 10),
     ) -> None:
         super().__init__()
@@ -30,7 +31,19 @@ class FlowMatchingModel(nn.Module):
         self.controlnet = controlnet
         self.max_timestep = int(max_timestep)
         self.latent_size = tuple(latent_size)
+        self.conditioning_size = tuple(conditioning_size)
         self.output_size = tuple(output_size)
+
+        cond_blocks = getattr(self.controlnet.controlnet_cond_embedding, "blocks", ())
+        self.conditioning_downsample_factor = 2 ** (len(cond_blocks) // 2)
+        expected_latent = tuple(size // self.conditioning_downsample_factor for size in self.conditioning_size)
+        if expected_latent != self.latent_size:
+            raise ValueError(
+                "ControlNet conditioning resolution does not match latent_size: "
+                f"conditioning_size={self.conditioning_size}, "
+                f"downsample_factor={self.conditioning_downsample_factor}, "
+                f"latent_size={self.latent_size}."
+            )
 
     def forward(
         self,
@@ -51,11 +64,11 @@ class FlowMatchingModel(nn.Module):
         if masks.shape[0] != x.shape[0]:
             raise ValueError(f"Batch mismatch: x {x.shape}, masks {masks.shape}")
 
-        masks_latent = _resize(masks, self.latent_size, mode="nearest")
+        masks_cond = _resize(masks, self.conditioning_size, mode="nearest")
         down_res, mid_res = self.controlnet(
             x=x_latent,
             timesteps=timesteps,
-            controlnet_cond=masks_latent,
+            controlnet_cond=masks_cond,
         )
         pred = self.unet(
             x=x_latent,
@@ -98,6 +111,7 @@ def build_model(
 
     max_timestep = int(model_cfg.get("max_timestep", 1000))
     latent_size = tuple(model_cfg.get("latent_size", (32, 32)))
+    conditioning_size = tuple(model_cfg.get("mask_size", latent_size))
     output_size = tuple(model_cfg.get("output_size", (10, 10)))
     unet_kwargs = _filter_kwargs(model_cfg, DiffusionModelUNet)
     controlnet_kwargs = _filter_kwargs(model_cfg, ControlNet)
@@ -116,6 +130,7 @@ def build_model(
         controlnet=controlnet,
         max_timestep=max_timestep,
         latent_size=latent_size,
+        conditioning_size=conditioning_size,
         output_size=output_size,
     ).to(device)
 
