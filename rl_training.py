@@ -12,6 +12,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.strategies import DDPStrategy
 import torch
 import torch.nn.functional as F
 
@@ -496,7 +497,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         callbacks=callbacks,
         accelerator=tr["accelerator"],
         devices=tr["devices"],
-        strategy="auto",
+        strategy=DDPStrategy(find_unused_parameters=True),
         deterministic=bool(tr.get("deterministic", False)),
         log_every_n_steps=int(tr.get("log_every_n_steps", 50)),
         num_sanity_val_steps=int(tr.get("num_sanity_val_steps", 0)),

@@ -38,6 +38,13 @@ class FlowMatchingModel(nn.Module):
         t: torch.Tensor,
         masks: torch.Tensor,
     ) -> torch.Tensor:
+        if t.ndim == 0:
+            t = t.expand(x.shape[0])
+        elif t.ndim == 1 and t.shape[0] == 1 and x.shape[0] != 1:
+            t = t.expand(x.shape[0])
+        elif t.ndim != 1 or t.shape[0] != x.shape[0]:
+            raise ValueError(f"Expected t with shape [{x.shape[0]}], got {tuple(t.shape)}.")
+
         timesteps = (t * (self.max_timestep - 1)).floor().long()
 
         x_latent = _resize(x, self.latent_size, mode="bilinear")
