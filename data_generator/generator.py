@@ -1,9 +1,6 @@
 import argparse
 import os
 import pickle
-
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/kirigami_x_mplconfig")
-
 import numpy as np
 import yaml
 
@@ -12,7 +9,6 @@ from data_generator.visualization import save_gifs, save_preview
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CONFIG = os.path.join(HERE, "configs", "default.yaml")
 
 
 def generate_dataset(rows, cols, height, width, n_target, rng, x_min, x_max, context):
@@ -36,11 +32,11 @@ def load_config(path):
 
 def parse_args():
     bootstrap = argparse.ArgumentParser(add_help=False)
-    bootstrap.add_argument("--config", default=DEFAULT_CONFIG)
+    bootstrap.add_argument("--config", default="configs/data_generator.yaml")
     known, _ = bootstrap.parse_known_args()
     config = load_config(known.config)
 
-    parser = argparse.ArgumentParser(description="Standalone kirigami generator using x_ij = a / b.")
+    parser = argparse.ArgumentParser(description="Kirigami generator using x_ij = a / b.")
     parser.add_argument("--config", default=known.config)
     parser.add_argument("--grid-rows", type=int, default=config["grid_rows"])
     parser.add_argument("--grid-cols", type=int, default=config["grid_cols"])
