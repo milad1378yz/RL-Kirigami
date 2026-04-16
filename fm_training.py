@@ -58,7 +58,6 @@ class FlowMatchModule(pl.LightningModule):
         tr = config["training"]
         self.val_freq = int(tr["val_freq"])
         self.num_val_samples = int(tr["num_val_samples"])
-        self.coupling_mode = self._resolve_coupling_mode(tr.get("coupling", "random"))
         self.solver_config = {
             "method": tr["method"],
             "step_size": tr["step_size"],
@@ -83,18 +82,7 @@ class FlowMatchModule(pl.LightningModule):
             "masks": torch.randn(2, 1, mask_h, mask_w),
         }
 
-    @staticmethod
-    def _resolve_coupling_mode(mode) -> str:
-        mode = str(mode).lower()
-        if mode in {"random", "rand", "none"}:
-            return "random"
-        if mode in {"ot", "optimal", "optimal_transport"}:
-            return "ot"
-        raise ValueError(f"Unknown coupling mode '{mode}'.")
-
     def _maybe_ot_couple(self, x0: torch.Tensor, x1: torch.Tensor) -> torch.Tensor:
-        if self.coupling_mode != "ot":
-            return x0
         if linear_sum_assignment is None:
             if not self._warned_ot_missing:
                 print("[WARN] SciPy not available; falling back to random coupling.")
