@@ -93,14 +93,13 @@ def _adv_weighted_flow_matching_loss(
     x0s: torch.Tensor,
     weights: torch.Tensor,
     *,
-    use_masks: bool,
     ref_model: Optional[torch.nn.Module] = None,
     ref_reg_weight: float = 0.0,
 ) -> torch.Tensor:
     images = batch_rep["images"]
     t = torch.rand(images.shape[0], device=images.device)
     sample_info = path.sample(t=t, x_0=x0s, x_1=images)
-    masks = batch_rep["masks"] if use_masks else None
+    masks = batch_rep["masks"]
 
     pred = model(sample_info.x_t, sample_info.t, masks)
     per_sample = F.mse_loss(pred, sample_info.dx_t, reduction="none").flatten(1).mean(dim=1)
@@ -147,9 +146,6 @@ class RLFlowMatchModule(pl.LightningModule):
         self.val_metric_workers = int(config["training"].get("val_metric_workers", 1))
 
         self.model = build_model(config, device=torch.device("cpu"))
-        self.use_controlnet = bool(config["model_config"]["use_controlnet"])
-        if not self.use_controlnet:
-            raise ValueError("RL training expects mask conditioning to be enabled.")
         if init_from_ckpt is not None and str(init_from_ckpt).lower() not in {"", "none"}:
             self._load_model_weights(init_from_ckpt)
 
@@ -263,7 +259,6 @@ class RLFlowMatchModule(pl.LightningModule):
             batch_rep,
             x0s,
             weights,
-            use_masks=True,
             ref_model=self.ref_model,
             ref_reg_weight=float(self.hparams["ref_reg_weight"] or 0.0),
         )
@@ -432,7 +427,6 @@ class RLFlowMatchModule(pl.LightningModule):
             solver_config=self.solver_config,
             device=self.device,
             outdir=outdir,
-            use_controlnet=True,
             num_samples=int(self.config["training"]["num_val_samples"]),
             context=self.context,
             x_min=self.x_min,

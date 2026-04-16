@@ -19,7 +19,7 @@ class FlowMatchingModel(nn.Module):
     def __init__(
         self,
         unet: DiffusionModelUNet,
-        controlnet: Optional[ControlNet] = None,
+        controlnet: ControlNet,
         *,
         max_timestep: int = 1000,
         latent_size: Tuple[int, int] = (32, 32),
@@ -29,7 +29,6 @@ class FlowMatchingModel(nn.Module):
         self.unet = unet
         self.controlnet = controlnet
         self.max_timestep = int(max_timestep)
-        self.has_controlnet = controlnet is not None
         self.latent_size = tuple(latent_size)
         self.output_size = tuple(output_size)
 
@@ -37,34 +36,28 @@ class FlowMatchingModel(nn.Module):
         self,
         x: torch.Tensor,
         t: torch.Tensor,
-        masks: Optional[torch.Tensor] = None,
+        masks: torch.Tensor,
     ) -> torch.Tensor:
         timesteps = (t * (self.max_timestep - 1)).floor().long()
         if timesteps.dim() == 0:
             timesteps = timesteps.expand(x.shape[0])
 
         x_latent = _resize(x, self.latent_size, mode="bilinear")
+        if masks.shape[0] != x.shape[0]:
+            raise ValueError(f"Batch mismatch: x {x.shape}, masks {masks.shape}")
 
-        if self.has_controlnet:
-            if masks is None:
-                raise ValueError("ControlNet conditioning requested but masks is None.")
-            if masks.shape[0] != x.shape[0]:
-                raise ValueError(f"Batch mismatch: x {x.shape}, masks {masks.shape}")
-
-            masks_latent = _resize(masks, self.latent_size, mode="nearest")
-            down_res, mid_res = self.controlnet(
-                x=x_latent,
-                timesteps=timesteps,
-                controlnet_cond=masks_latent,
-            )
-            pred = self.unet(
-                x=x_latent,
-                timesteps=timesteps,
-                down_block_additional_residuals=down_res,
-                mid_block_additional_residual=mid_res,
-            )
-        else:
-            pred = self.unet(x=x_latent, timesteps=timesteps)
+        masks_latent = _resize(masks, self.latent_size, mode="nearest")
+        down_res, mid_res = self.controlnet(
+            x=x_latent,
+            timesteps=timesteps,
+            controlnet_cond=masks_latent,
+        )
+        pred = self.unet(
+            x=x_latent,
+            timesteps=timesteps,
+            down_block_additional_residuals=down_res,
+            mid_block_additional_residual=mid_res,
+        )
 
         return _resize(pred, self.output_size, mode="bilinear")
 
@@ -101,22 +94,17 @@ def build_model(
     max_timestep = int(model_cfg.get("max_timestep", 1000))
     latent_size = tuple(model_cfg.get("latent_size", (32, 32)))
     output_size = tuple(model_cfg.get("output_size", (10, 10)))
-    use_controlnet = bool(model_cfg.get("use_controlnet", False))
-
     unet_kwargs = _filter_kwargs(model_cfg, DiffusionModelUNet)
     controlnet_kwargs = _filter_kwargs(model_cfg, ControlNet)
-    if use_controlnet:
-        seeded = {k: v for k, v in unet_kwargs.items() if k not in controlnet_kwargs}
-        controlnet_kwargs = {**seeded, **controlnet_kwargs}
+    seeded = {k: v for k, v in unet_kwargs.items() if k not in controlnet_kwargs}
+    controlnet_kwargs = {**seeded, **controlnet_kwargs}
 
     unet = DiffusionModelUNet(**unet_kwargs)
 
-    controlnet = None
-    if use_controlnet:
-        controlnet_kwargs.pop("out_channels", None)
-        controlnet_kwargs.pop("dropout_cattn", None)
-        controlnet = ControlNet(**controlnet_kwargs)
-        controlnet.load_state_dict(unet.state_dict(), strict=False)
+    controlnet_kwargs.pop("out_channels", None)
+    controlnet_kwargs.pop("dropout_cattn", None)
+    controlnet = ControlNet(**controlnet_kwargs)
+    controlnet.load_state_dict(unet.state_dict(), strict=False)
 
     model = FlowMatchingModel(
         unet=unet,
