@@ -1,0 +1,111 @@
+model_config:
+  spatial_dims: 2
+  in_channels: 1
+  out_channels: 1
+  input_size: [10, 10]
+  mask_size: [128, 128]
+  latent_size: [32, 32]
+  output_size: [10, 10]
+  num_res_blocks: [2, 2, 2, 2]
+  num_channels: [64, 128, 256, 256]
+  attention_levels: [false, true, true, true]
+  norm_num_groups: 32
+  resblock_updown: true
+  num_head_channels: [32, 64, 128, 128]
+  transformer_num_layers: 8
+  use_flash_attention: true
+  dropout_cattn: 0.1
+  max_timestep: 1000
+  use_controlnet: true
+  with_conditioning: false
+  cross_attention_dim: null
+  conditioning_embedding_num_channels: [32]
+
+data:
+  pickle_path: "data_generator/kirigami_x_dataset.pkl"
+  split_train: "train"
+  split_val: "valid"
+  grid_rows: 10
+  grid_cols: 10
+  x_min: 0.2
+  x_max: 5.0
+
+training:
+  seed: 42
+  num_epochs: 250
+  batch_size: 32
+  val_batch_size: 32
+  lr: 2.0e-5
+  weight_decay: 0.05
+  warmup_epochs: 1
+  min_lr_factor: 0.1
+  max_steps: -1
+  gradient_accumulation_steps: 1
+
+  mixed_precision: "bf16"
+  accelerator: "gpu"
+  devices: "auto"
+  allow_tf32: true
+  channels_last: false
+  compile: false
+  compile_mode: "default"
+
+  method: "euler"
+  step_size: 0.125
+  time_points: 9
+  coupling: "ot"
+
+  val_freq: 20
+  num_val_samples: 4
+  checkpoint_dir: "checkpoints"
+  log_dir: "checkpoints/tb"
+  swa: true
+  swa_lr: 2.0e-6
+  grad_clip_norm: 1.0
+  deterministic: true
+  log_every_n_steps: 50
+  val_check_interval: null
+  num_sanity_val_steps: 0
+  ckpt_every_n_steps: 0
+
+  augment_hflip_p: 0.0
+  augment_vflip_p: 0.0
+  num_workers: 4
+  pin_memory: true
+
+  mask_threshold: 0.5
+  metric_workers: 4
+
+rl_training:
+  num_epochs: 20
+  batch_size: 8
+  val_batch_size: 16
+  lr: 1.0e-5
+  max_steps: 300
+  group_size: 4
+  reward_temperature: 0.2
+  adv_alpha: null
+  weight_clip: 10.0
+  ref_reg_weight: 0.02
+  reward_metric: "iou"
+  reward_transform: "logit"
+  reward_power: 1.0
+  reward_logit_eps: 1.0e-4
+  reward_scale: 1.0
+  reward_shift: 0.0
+  reward_penalty_scale: 1.0
+  reward_workers: 8
+  val_metric_workers: 8
+  val_freq: 5
+  swa_lr: 2.0e-6
+  shape_penalty:
+    enabled: true
+    build_fail: 5.0
+    invalid_any: 2.0
+    invalid_per_quad: 0.0
+    overlap_ratio: 2.0
+    overlap_ratio_threshold: 0.02
+    fill_error: 2.0
+    range_violation: 2.0
+    clipped_fraction: 0.5
+
