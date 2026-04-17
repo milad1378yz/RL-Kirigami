@@ -17,6 +17,7 @@ import torch.nn.functional as F
 
 from data_generator.utils import build_geometry_context
 from kirigami_training.data import KirigamiDataModule
+from kirigami_training.data import model_to_x_space
 from kirigami_training.data import prepare_training_config
 from kirigami_training.metrics import compute_shape_metrics_batch
 from kirigami_training.model import build_model
@@ -146,6 +147,7 @@ class RLFlowMatchModule(pl.LightningModule):
         self.metric_threshold = float(config["training"].get("mask_threshold", 0.5))
         self.reward_workers = int(config["training"].get("reward_workers", 1))
         self.val_metric_workers = int(config["training"].get("val_metric_workers", 1))
+        self.source_noise_std = float(config["training"].get("source_noise_std", 0.5))
 
         self.model = build_model(config, device=torch.device("cpu"))
         if init_from_ckpt is not None and str(init_from_ckpt).lower() not in {"", "none"}:
@@ -157,6 +159,7 @@ class RLFlowMatchModule(pl.LightningModule):
             "method": tr["method"],
             "step_size": tr["step_size"],
             "time_points": tr["time_points"],
+            "source_noise_std": self.source_noise_std,
         }
         self.reward_metric = str(tr.get("reward_metric", "siou") or "siou").lower()
         if self.reward_metric not in {"iou", "siou"}:
@@ -215,7 +218,7 @@ class RLFlowMatchModule(pl.LightningModule):
     def _plain_fm_loss(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         images = batch["images"]
         masks = batch["masks"]
-        x0 = torch.randn_like(images)
+        x0 = self.source_noise_std * torch.randn_like(images)
         t = torch.rand(images.shape[0], device=images.device)
         sample_info = self.path.sample(t=t, x_0=x0, x_1=images)
         pred = self.model(sample_info.x_t, sample_info.t, masks)
@@ -224,7 +227,7 @@ class RLFlowMatchModule(pl.LightningModule):
     def training_step(self, batch: dict[str, torch.Tensor], batch_idx: int):
         group_size = int(self.hparams["group_size"]) or 1
         batch_rep = _repeat_batch(batch, repeats=group_size)
-        x0s = torch.randn_like(batch_rep["images"])
+        x0s = self.source_noise_std * torch.randn_like(batch_rep["images"])
         masks = batch_rep["masks"]
         metric_masks = batch_rep["metric_masks"]
 
@@ -240,7 +243,8 @@ class RLFlowMatchModule(pl.LightningModule):
             )
         self.model.train(was_training)
 
-        pred_x = sol[-1] if sol.dim() == 5 else sol
+        pred_z = sol[-1] if sol.dim() == 5 else sol
+        pred_x = model_to_x_space(pred_z, x_min=self.x_min, x_max=self.x_max)
         metrics = compute_shape_metrics_batch(
             pred_x,
             metric_masks,
@@ -365,12 +369,13 @@ class RLFlowMatchModule(pl.LightningModule):
         with torch.inference_mode():
             sol = sample_with_solver(
                 self.model,
-                torch.randn_like(batch["images"]),
+                self.source_noise_std * torch.randn_like(batch["images"]),
                 self.solver_config,
                 masks=batch["masks"],
                 return_intermediates=False,
             )
-            pred_x = sol[-1] if sol.dim() == 5 else sol
+            pred_z = sol[-1] if sol.dim() == 5 else sol
+            pred_x = model_to_x_space(pred_z, x_min=self.x_min, x_max=self.x_max)
 
         metrics = compute_shape_metrics_batch(
             pred_x,

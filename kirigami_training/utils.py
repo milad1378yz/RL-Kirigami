@@ -9,6 +9,7 @@ from pytorch_lightning.callbacks import TQDMProgressBar
 import torch
 import yaml
 
+from .data import model_to_x_space
 from .sampling import plot_solver_steps, sample_with_solver
 from data_generator.utils import mask_overlay_rgb, render_structure_mask_and_metrics
 from data_generator.visualization import plot_x_matrix_structure
@@ -192,12 +193,15 @@ def save_validation_artifacts(
             need_plot = plot_steps and not did_plot
             sol = sample_with_solver(
                 model=model,
-                x_init=torch.randn_like(images),
+                x_init=float(solver_config.get("source_noise_std", 0.5)) * torch.randn_like(images),
                 solver_config=solver_config,
                 masks=masks,
                 return_intermediates=need_plot,
             )
             final_images = sol[-1] if sol.dim() == 5 else sol
+            final_images_x = model_to_x_space(final_images, x_min=x_min, x_max=x_max)
+            real_images_x = model_to_x_space(images, x_min=x_min, x_max=x_max)
+            sol_x = model_to_x_space(sol, x_min=x_min, x_max=x_max) if sol.dim() == 5 else final_images_x
 
             if save_triplets:
                 for i in range(final_images.size(0)):
@@ -206,8 +210,8 @@ def save_validation_artifacts(
                     sample_dir = os.path.join(outdir, f"sample_{count + 1:03d}")
                     os.makedirs(sample_dir, exist_ok=True)
 
-                    pred_x = final_images[i].detach().cpu().numpy().squeeze()
-                    real_x = images[i].detach().cpu().numpy().squeeze()
+                    pred_x = final_images_x[i].detach().cpu().numpy().squeeze()
+                    real_x = real_images_x[i].detach().cpu().numpy().squeeze()
                     gt_mask = masks[i].detach().cpu().numpy().squeeze()
 
                     pred_mask, _, _, _ = render_structure_mask_and_metrics(
@@ -249,8 +253,8 @@ def save_validation_artifacts(
 
             if need_plot:
                 plot_solver_steps(
-                    sol,
-                    images,
+                    sol_x,
+                    real_images_x,
                     masks,
                     context,
                     outdir,
