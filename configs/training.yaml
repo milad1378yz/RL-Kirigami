@@ -73,7 +73,6 @@ rl_training:
   batch_size: 8
   val_batch_size: 16
   lr: 1.0e-5
-  max_steps: 300
   group_size: 4
   reward_temperature: 0.2
   adv_alpha: null

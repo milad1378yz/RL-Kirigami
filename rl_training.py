@@ -86,6 +86,7 @@ def _merge_training_config(config: dict) -> dict:
 
     if overrides:
         base.update(overrides)
+        base.pop("max_steps", None)
         merged["training"] = base
     if data_overrides:
         data_cfg = dict(merged.get("data", {}) or {})
@@ -517,7 +518,6 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
     trainer = Trainer(
         default_root_dir=root_ckpt_dir,
         max_epochs=int(tr["num_epochs"]),
-        max_steps=int(tr.get("max_steps", -1)),
         precision=precision,
         accumulate_grad_batches=int(tr.get("gradient_accumulation_steps", 1)),
         gradient_clip_val=(float(tr["grad_clip_norm"]) if tr.get("grad_clip_norm") else None),
