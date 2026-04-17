@@ -9,7 +9,6 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.strategies import DDPStrategy
 from scipy.optimize import linear_sum_assignment
 import torch
 import torch.nn.functional as F
@@ -50,7 +49,6 @@ class FlowMatchModule(pl.LightningModule):
         self.x_min = config["data"].get("x_min")
         self.x_max = config["data"].get("x_max")
         self.metric_threshold = float(config["training"].get("mask_threshold", 0.5))
-        self.metric_workers = int(config["training"].get("metric_workers", 1))
         self.source_noise_std = float(config["training"].get("source_noise_std", 0.5))
 
         self.model = build_model(config, device=torch.device("cpu"))
@@ -69,10 +67,6 @@ class FlowMatchModule(pl.LightningModule):
         if tr.get("allow_tf32", False) and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-        if tr.get("channels_last", False):
-            self.model = self.model.to(memory_format=torch.channels_last)
-        if tr.get("compile", False) and hasattr(torch, "compile"):
-            self.model = torch.compile(self.model, mode=tr.get("compile_mode", "default"))
 
         channels = int(config["model_config"]["in_channels"])
         in_h, in_w = tuple(config["model_config"]["input_size"])
@@ -134,14 +128,13 @@ class FlowMatchModule(pl.LightningModule):
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         with torch.no_grad():
-            sol = sample_with_solver(
+            pred_z = sample_with_solver(
                 self.model,
                 self.source_noise_std * torch.randn_like(images),
                 self.solver_config,
                 masks=masks,
                 return_intermediates=False,
             )
-            pred_z = sol[-1] if sol.dim() == 5 else sol
             pred_x = model_to_x_space(pred_z, x_min=self.x_min, x_max=self.x_max)
 
         metrics = compute_shape_metrics_batch(
@@ -151,7 +144,6 @@ class FlowMatchModule(pl.LightningModule):
             x_min=self.x_min,
             x_max=self.x_max,
             threshold=self.metric_threshold,
-            num_workers=self.metric_workers,
             device=self.device,
         )
 
@@ -203,7 +195,7 @@ class FlowMatchModule(pl.LightningModule):
     def on_validation_epoch_end(self) -> None:
         if (self.current_epoch + 1) % self.val_freq != 0:
             return
-        if hasattr(self.trainer, "is_global_zero") and not self.trainer.is_global_zero:
+        if not self.trainer.is_global_zero:
             return
 
         run_dir = resolve_run_dir(self.trainer)
@@ -256,9 +248,8 @@ def run_flow_training(config: dict, *, config_path: str) -> None:
         save_top_k=3,
         save_last=True,
         auto_insert_metric_name=False,
-        every_n_train_steps=(int(tr["ckpt_every_n_steps"]) if tr.get("ckpt_every_n_steps") else None),
-        every_n_epochs=(None if tr.get("ckpt_every_n_steps") else max(1, int(tr["val_freq"]))),
-        save_on_train_epoch_end=(False if tr.get("ckpt_every_n_steps") else True),
+        every_n_epochs=max(1, int(tr["val_freq"])),
+        save_on_train_epoch_end=True,
     )
     callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step"), TrainingTQDMProgressBar()]
     if tr.get("swa", False):
@@ -278,10 +269,9 @@ def run_flow_training(config: dict, *, config_path: str) -> None:
         callbacks=callbacks,
         accelerator=tr["accelerator"],
         devices=tr["devices"],
-        strategy=DDPStrategy(find_unused_parameters=True),
         deterministic=bool(tr.get("deterministic", False)),
         log_every_n_steps=int(tr.get("log_every_n_steps", 50)),
-        num_sanity_val_steps=int(tr.get("num_sanity_val_steps", 0)),
+        num_sanity_val_steps=0,
     )
 
     datamodule = KirigamiDataModule(config)
