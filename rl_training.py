@@ -1,6 +1,5 @@
 import argparse
 import copy
-import glob
 import os
 import time
 import warnings
@@ -27,6 +26,7 @@ from kirigami_training.utils import (
     load_config,
     precision_from_config,
     prepare_epoch_dirs,
+    resolve_checkpoint_path,
     resolve_run_dir,
     save_epoch_meta,
     save_validation_artifacts,
@@ -450,16 +450,6 @@ class RLFlowMatchModule(pl.LightningModule):
         )
         save_epoch_meta(epoch_dir, epoch, self.config)
 
-
-def _resolve_last_checkpoint(root_ckpt_dir: str, run_name: str) -> Optional[str]:
-    run_dir = os.path.join(root_ckpt_dir, run_name)
-    last_ckpt = os.path.join(run_dir, "last.ckpt")
-    if os.path.isfile(last_ckpt):
-        return last_ckpt
-    candidates = sorted(glob.glob(os.path.join(run_dir, "*.ckpt")), key=os.path.getmtime)
-    return candidates[-1] if candidates else None
-
-
 def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: str = "last") -> None:
     config = _merge_training_config(config)
     tr = config["training"]
@@ -516,14 +506,8 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         num_sanity_val_steps=int(tr.get("num_sanity_val_steps", 0)),
     )
 
-    resolved_init = init_from
-    if str(init_from).lower() == "last":
-        resolved_init = _resolve_last_checkpoint(root_ckpt_dir, base_run)
-    elif str(init_from).lower() in {"", "none"}:
-        resolved_init = None
-    else:
-        resolved_init = os.path.expanduser(init_from)
-    if resolved_init is not None and not os.path.isfile(resolved_init):
+    resolved_init = resolve_checkpoint_path(root_ckpt_dir, base_run, init_from)
+    if resolved_init is None and str(init_from).lower() not in {"", "none"}:
         raise FileNotFoundError(f"Could not resolve RL init checkpoint '{init_from}'.")
 
     datamodule = KirigamiDataModule(config)
@@ -537,13 +521,8 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         init_from_ckpt=resolved_init,
     )
 
-    ckpt_path = None
+    ckpt_path = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
     if resume and str(resume).lower() not in {"", "none"}:
-        if str(resume).lower() == "last":
-            ckpt_path = _resolve_last_checkpoint(root_ckpt_dir, run_name)
-        else:
-            resume_path = os.path.expanduser(resume)
-            ckpt_path = resume_path if os.path.isfile(resume_path) else None
         if ckpt_path is None:
             print(f"[WARN] Could not resolve --resume '{resume}'. Starting RL without resume.")
 
