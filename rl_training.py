@@ -240,7 +240,7 @@ class RLFlowMatchModule(pl.LightningModule):
         batch_rep = _repeat_batch(batch, repeats=group_size)
         x0s = self.source_noise_std * torch.randn_like(batch_rep["images"])
         masks = batch_rep["masks"]
-        metric_masks = batch_rep["metric_masks"]
+        metric_masks = masks
 
         was_training = self.model.training
         self.model.eval()

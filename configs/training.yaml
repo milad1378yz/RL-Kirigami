@@ -30,7 +30,7 @@ common_training:
   seed: 42
   mixed_precision: "bf16"
   accelerator: "gpu"
-  devices: "auto"
+  devices: 1
   allow_tf32: true
 
   method: "euler"
@@ -39,8 +39,6 @@ common_training:
   source_noise_std: 0.5
 
   checkpoint_dir: "checkpoints"
-  swa: true
-  swa_lr: 2.0e-6
   grad_clip_norm: 1.0
   deterministic: true
   log_every_n_steps: 50
@@ -48,12 +46,6 @@ common_training:
 
   num_workers: 4
   pin_memory: true
-  augment_mask_p: 0.5
-  augment_mask_rotate_deg: 180.0
-  augment_mask_scale_min: 0.85
-  augment_mask_scale_max: 1.15
-  augment_mask_shift_frac_x: 0.125
-  augment_mask_shift_frac_y: 0.125
 
   mask_threshold: 0.5
 
@@ -70,22 +62,39 @@ fm_training:
   val_freq: 20
   val_check_interval: null
 
+  swa: true
+  swa_lr: 2.0e-6
+  augment_mask_p: 0.5
+  augment_mask_rotate_deg: 180.0
+  augment_mask_scale_min: 0.85
+  augment_mask_scale_max: 1.15
+  augment_mask_shift_frac_x: 0.125
+  augment_mask_shift_frac_y: 0.125
+
 rl_training:
-  num_epochs: 200
+  num_epochs: 300
   batch_size: 16
   val_batch_size: 32
-  lr: 1.0e-5
-  weight_decay: 0.05
-  warmup_epochs: 1
-  min_lr_factor: 0.1
+  lr: 2.0e-5
+  weight_decay: 0.0
+  warmup_epochs: 0
+  min_lr_factor: 1.0
   gradient_accumulation_steps: 1
   val_freq: 5.0
+
+  swa: false
+  augment_mask_p: 0.0
+  augment_mask_rotate_deg: 0.0
+  augment_mask_scale_min: 1.0
+  augment_mask_scale_max: 1.0
+  augment_mask_shift_frac_x: 0.0
+  augment_mask_shift_frac_y: 0.0
 
   group_size: 8
   reward_temperature: 0.4
   adv_alpha: null
   weight_clip: 30.0
-  ref_reg_weight: 0.02
+  ref_reg_weight: 0.0
   reward_metric: "siou"
   reward_transform: "none"
   reward_power: 1.0
