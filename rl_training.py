@@ -30,6 +30,7 @@ from kirigami_training.utils import (
     resolve_run_dir,
     save_epoch_meta,
     save_validation_artifacts,
+    TrainingTQDMProgressBar,
 )
 
 
@@ -284,7 +285,8 @@ class RLFlowMatchModule(pl.LightningModule):
         grouped_penalty = metrics["penalty"].view(batch_size, group_size)
         grouped_weights = weights.view(batch_size, group_size)
 
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/loss_step", loss, on_step=True, on_epoch=False, prog_bar=True, logger=False)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=False)
         self.log("train/reward_mean", grouped_rewards.mean(dim=1).mean(), on_step=True, on_epoch=True)
         self.log("train/reward_max", grouped_rewards.max(dim=1).values.mean(), on_step=True, on_epoch=True)
         self.log(
@@ -381,7 +383,7 @@ class RLFlowMatchModule(pl.LightningModule):
             device=self.device,
         )
 
-        self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=False, sync_dist=True)
         self.log("val/SIoU", metrics["siou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
         self.log(
             "val/invalid_any_rate",
@@ -482,7 +484,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         every_n_epochs=(None if tr.get("ckpt_every_n_steps") else max(1, int(tr["val_freq"]))),
         save_on_train_epoch_end=(False if tr.get("ckpt_every_n_steps") else True),
     )
-    callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step")]
+    callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step"), TrainingTQDMProgressBar()]
     if tr.get("swa", False):
         callbacks.append(StochasticWeightAveraging(swa_lrs=float(tr["swa_lr"])))
 
