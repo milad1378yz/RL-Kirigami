@@ -16,6 +16,7 @@ import torch.nn.functional as F
 
 from data_generator.utils import build_geometry_context
 from kirigami_training.data import KirigamiDataModule
+from kirigami_training.data import model_to_x_space
 from kirigami_training.data import prepare_training_config
 from kirigami_training.metrics import compute_shape_metrics_batch
 from kirigami_training.model import build_model
@@ -50,6 +51,7 @@ class FlowMatchModule(pl.LightningModule):
         self.x_max = config["data"].get("x_max")
         self.metric_threshold = float(config["training"].get("mask_threshold", 0.5))
         self.metric_workers = int(config["training"].get("metric_workers", 1))
+        self.source_noise_std = float(config["training"].get("source_noise_std", 0.5))
 
         self.model = build_model(config, device=torch.device("cpu"))
         self.path = AffineProbPath(scheduler=CondOTScheduler())
@@ -61,6 +63,7 @@ class FlowMatchModule(pl.LightningModule):
             "method": tr["method"],
             "step_size": tr["step_size"],
             "time_points": tr["time_points"],
+            "source_noise_std": self.source_noise_std,
         }
 
         if tr.get("allow_tf32", False) and torch.cuda.is_available():
@@ -107,7 +110,7 @@ class FlowMatchModule(pl.LightningModule):
         images: torch.Tensor,
         masks: torch.Tensor,
     ) -> torch.Tensor:
-        x0 = torch.randn_like(images)
+        x0 = self.source_noise_std * torch.randn_like(images)
         x0 = self._maybe_ot_couple(x0, images)
         t = torch.rand(images.shape[0], device=images.device)
         sample_info = self.path.sample(t=t, x_0=x0, x_1=images)
@@ -133,12 +136,13 @@ class FlowMatchModule(pl.LightningModule):
         with torch.no_grad():
             sol = sample_with_solver(
                 self.model,
-                torch.randn_like(images),
+                self.source_noise_std * torch.randn_like(images),
                 self.solver_config,
                 masks=masks,
                 return_intermediates=False,
             )
-            pred_x = sol[-1] if sol.dim() == 5 else sol
+            pred_z = sol[-1] if sol.dim() == 5 else sol
+            pred_x = model_to_x_space(pred_z, x_min=self.x_min, x_max=self.x_max)
 
         metrics = compute_shape_metrics_batch(
             pred_x,

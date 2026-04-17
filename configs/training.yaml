@@ -44,6 +44,7 @@ training:
   method: "euler"
   step_size: 0.125
   time_points: 9
+  source_noise_std: 0.5
 
   val_freq: 20
   num_val_samples: 4

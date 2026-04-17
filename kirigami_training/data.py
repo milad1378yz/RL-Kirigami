@@ -30,11 +30,43 @@ class KirigamiDataset(Dataset):
         }
 
 
+def log_space_bounds(x_min: float, x_max: float) -> tuple[float, float]:
+    x_min = float(x_min)
+    x_max = float(x_max)
+    if x_min <= 0.0:
+        raise ValueError("x_min must stay positive for log-space training.")
+    if x_max < x_min:
+        raise ValueError("x_max must be greater than or equal to x_min.")
+    return math.log10(x_min), math.log10(x_max)
+
+
+def x_to_model_space(x: torch.Tensor) -> torch.Tensor:
+    if torch.any(x <= 0):
+        raise ValueError("x values must stay positive for log-space training.")
+    return torch.log10(x)
+
+
+def model_to_x_space(
+    z: torch.Tensor,
+    *,
+    x_min: float,
+    x_max: float,
+    clip: bool = False,
+) -> torch.Tensor:
+    if clip:
+        z_min, z_max = log_space_bounds(x_min, x_max)
+        z = z.clamp(min=z_min, max=z_max)
+    return torch.exp(z * math.log(10.0))
+
+
 def resolve_data_settings(data_cfg: dict) -> dict:
     generator_config_path = data_cfg.get("generator_config", "configs/data_generator.yaml")
     generator_cfg = load_generator_config(generator_config_path)
     default_pickle_path, _, _ = resolve_generator_output_paths()
     pickle_path = data_cfg.get("pickle_path") or default_pickle_path
+    x_min = float(generator_cfg["x_min"])
+    x_max = float(generator_cfg["x_max"])
+    z_min, z_max = log_space_bounds(x_min, x_max)
 
     return {
         "generator_config": generator_config_path,
@@ -43,8 +75,10 @@ def resolve_data_settings(data_cfg: dict) -> dict:
         "split_val": data_cfg.get("split_val", "valid"),
         "grid_rows": int(generator_cfg["grid_rows"]),
         "grid_cols": int(generator_cfg["grid_cols"]),
-        "x_min": float(generator_cfg["x_min"]),
-        "x_max": float(generator_cfg["x_max"]),
+        "x_min": x_min,
+        "x_max": x_max,
+        "z_min": z_min,
+        "z_max": z_max,
         "mask_size": (int(generator_cfg["img_h"]), int(generator_cfg["img_w"])),
     }
 
@@ -60,7 +94,7 @@ def prepare_training_config(config: dict) -> dict:
     return config
 
 
-def load_dataset_split(pickle_path: str, split: str) -> dict:
+def load_dataset_split(pickle_path: str, split: str, *, x_min: float, x_max: float) -> dict:
     with open(pickle_path, "rb") as handle:
         data = pickle.load(handle)
 
@@ -68,7 +102,7 @@ def load_dataset_split(pickle_path: str, split: str) -> dict:
     if not entries:
         raise ValueError(f"No data found for split '{split}' in '{pickle_path}'.")
 
-    images = torch.stack(
+    images_x = torch.stack(
         [torch.tensor(entry["image"], dtype=torch.float32) for entry in entries],
         dim=0,
     )
@@ -76,6 +110,7 @@ def load_dataset_split(pickle_path: str, split: str) -> dict:
         [torch.tensor(entry["mask"], dtype=torch.float32) for entry in entries],
         dim=0,
     )
+    images = x_to_model_space(images_x)
 
     if images.dim() != 4:
         raise ValueError(f"Expected images with shape [N,1,H,W], got {tuple(images.shape)}.")
@@ -83,13 +118,16 @@ def load_dataset_split(pickle_path: str, split: str) -> dict:
         raise ValueError(f"Expected masks with shape [N,1,H,W], got {tuple(masks.shape)}.")
 
     meta = entries[0].get("metadata", {})
+    z_min, z_max = log_space_bounds(x_min, x_max)
     spec = {
         "grid_rows": int(meta.get("grid_rows", images.shape[-2])),
         "grid_cols": int(meta.get("grid_cols", images.shape[-1])),
         "input_size": tuple(int(v) for v in images.shape[-2:]),
         "mask_size": tuple(int(v) for v in masks.shape[-2:]),
-        "x_min": float(images.min().item()),
-        "x_max": float(images.max().item()),
+        "x_min": float(images_x.min().item()),
+        "x_max": float(images_x.max().item()),
+        "z_min": float(z_min),
+        "z_max": float(z_max),
     }
     return {
         "images": images,
@@ -267,8 +305,18 @@ class KirigamiDataModule(pl.LightningDataModule):
         tr = self.config["training"]
         num_workers = int(tr.get("num_workers", 0))
 
-        self.train_data = load_dataset_split(data_cfg["pickle_path"], data_cfg["split_train"])
-        self.val_data = load_dataset_split(data_cfg["pickle_path"], data_cfg["split_val"])
+        self.train_data = load_dataset_split(
+            data_cfg["pickle_path"],
+            data_cfg["split_train"],
+            x_min=data_cfg["x_min"],
+            x_max=data_cfg["x_max"],
+        )
+        self.val_data = load_dataset_split(
+            data_cfg["pickle_path"],
+            data_cfg["split_val"],
+            x_min=data_cfg["x_min"],
+            x_max=data_cfg["x_max"],
+        )
         self.data_spec = dict(self.train_data["spec"])
 
         model_cfg = self.config["model_config"]
