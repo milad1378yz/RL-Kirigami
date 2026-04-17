@@ -461,7 +461,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
     root_ckpt_dir = os.path.expanduser(tr["checkpoint_dir"])
     base_run = config.get("run_name", os.path.splitext(os.path.basename(config_path))[0])
     run_name = f"{base_run}_RL"
-    tb_root = os.path.expanduser(tr["log_dir"])
+    tb_root = os.path.join(root_ckpt_dir, "tb")
     tb_version = time.strftime("%Y%m%d-%H%M%S")
     logger = TensorBoardLogger(save_dir=tb_root, name=run_name, version=tb_version)
 

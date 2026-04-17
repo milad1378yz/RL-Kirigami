@@ -232,7 +232,7 @@ def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -
     precision = precision_from_config(tr["mixed_precision"])
     root_ckpt_dir = os.path.expanduser(tr["checkpoint_dir"])
     run_name = config.get("run_name", os.path.splitext(os.path.basename(config_path))[0])
-    tb_root = os.path.expanduser(tr["log_dir"])
+    tb_root = os.path.join(root_ckpt_dir, "tb")
     tb_version = time.strftime("%Y%m%d-%H%M%S")
 
     logger = TensorBoardLogger(save_dir=tb_root, name=run_name, version=tb_version)

@@ -48,7 +48,6 @@ training:
   val_freq: 20
   num_val_samples: 4
   checkpoint_dir: "checkpoints"
-  log_dir: "checkpoints/tb"
   swa: true
   swa_lr: 2.0e-6
   grad_clip_norm: 1.0
