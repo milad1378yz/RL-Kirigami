@@ -83,7 +83,7 @@ rl_training:
   gradient_accumulation_steps: 1
   val_freq: 5.0
 
-  group_size: 4
+  group_size: 8
   reward_temperature: 0.05
   adv_alpha: null
   weight_clip: 30.0
