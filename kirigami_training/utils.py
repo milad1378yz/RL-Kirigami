@@ -1,3 +1,4 @@
+import copy
 import glob
 import json
 import os
@@ -18,6 +19,40 @@ from data_generator.visualization import plot_x_matrix_structure
 def load_config(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
+
+
+def select_training_config(config: dict, training_key: str) -> dict:
+    base_data = dict(config.get("data", {}) or {})
+    data_key = training_key.replace("_training", "_data")
+    specific_data = dict(config.get(data_key, {}) or {})
+    common_training = dict(config.get("common_training", {}) or {})
+    specific_training = dict(config.get(training_key, {}) or {})
+    if not specific_training:
+        raise KeyError(f"Missing training section '{training_key}' in config.")
+
+    data_overlap = sorted(set(base_data).intersection(specific_data))
+    if data_overlap:
+        overlap_text = ", ".join(data_overlap)
+        raise ValueError(
+            f"Config sections 'data' and '{data_key}' overlap: {overlap_text}"
+        )
+
+    overlap = sorted(set(common_training).intersection(specific_training))
+    if overlap:
+        overlap_text = ", ".join(overlap)
+        raise ValueError(
+            f"Config sections 'common_training' and '{training_key}' overlap: {overlap_text}"
+        )
+
+    resolved = copy.deepcopy(config)
+    resolved.pop("fm_data", None)
+    resolved.pop("rl_data", None)
+    resolved.pop("common_training", None)
+    resolved.pop("fm_training", None)
+    resolved.pop("rl_training", None)
+    resolved["data"] = {**base_data, **specific_data}
+    resolved["training"] = {**common_training, **specific_training}
+    return resolved
 
 
 def precision_from_config(mixed_precision: str):

@@ -37,21 +37,6 @@ def sample_with_solver(
     )
 
 
-def _step_indices(n_steps: int) -> list[int]:
-    if n_steps <= 5:
-        return list(range(n_steps))
-    picks = np.linspace(0, n_steps - 1, num=5, dtype=int).tolist()
-    picks[-1] = n_steps - 1
-    picks = sorted(set(picks))
-    while len(picks) < 5:
-        for idx in range(n_steps - 1):
-            if idx not in picks:
-                picks.insert(-1, idx)
-            if len(picks) >= 5:
-                break
-    return picks
-
-
 def _plot_invalid(ax, message: str) -> None:
     ax.axis("off")
     ax.text(0.5, 0.5, message, ha="center", va="center")
@@ -72,14 +57,12 @@ def plot_solver_steps(
         return
 
     n_samples = min(int(sol.shape[1]), int(max_plot))
-    n_steps = int(sol.shape[0])
-    step_idx = _step_indices(n_steps)
-    extra_cols = 5
+    total_cols = 7
 
     fig, axes = plt.subplots(
         n_samples,
-        len(step_idx) + extra_cols,
-        figsize=(2.5 * (len(step_idx) + extra_cols), max(4, 3 * n_samples)),
+        total_cols,
+        figsize=(2.7 * total_cols, max(4, 3 * n_samples)),
         squeeze=False,
     )
 
@@ -102,29 +85,56 @@ def plot_solver_steps(
         siou, aligned_gt_mask, _ = mask_siou(pred_mask, gt_mask, return_alignment=True)
         overlay = mask_overlay_rgb(pred_mask, aligned_gt_mask.astype(np.float32))
 
-        for col, step in enumerate(step_idx):
-            ax = axes[i, col]
-            step_x = sol[step, i].detach().cpu().numpy().squeeze()
-            step_mask = pred_mask if step == n_steps - 1 else None
-            try:
-                plot_x_matrix_structure(
-                    ax,
-                    step_x,
-                    context,
-                    mask_2d=step_mask,
-                    x_min=x_min,
-                    x_max=x_max,
-                    normalize_phi=None,
-                )
-            except Exception as exc:
-                _plot_invalid(ax, f"invalid\n{exc}")
-            if i == 0:
-                title = f"Step {step}"
-                if step == n_steps - 1:
-                    title += " + mask"
-                ax.set_title(title)
+        col = 0
+        try:
+            plot_x_matrix_structure(
+                axes[i, col],
+                pred_final,
+                context,
+                mask_2d=pred_mask,
+                x_min=x_min,
+                x_max=x_max,
+                normalize_phi=None,
+            )
+        except Exception as exc:
+            _plot_invalid(axes[i, col], f"invalid\n{exc}")
+        if i == 0:
+            axes[i, col].set_title("Final Step + Mask")
+        col += 1
 
-        col = len(step_idx)
+        heatmap_artist = axes[i, col].imshow(
+            pred_final,
+            cmap="viridis",
+            vmin=x_min,
+            vmax=x_max,
+            interpolation="nearest",
+        )
+        axes[i, col].set_xticks(np.arange(pred_final.shape[1]))
+        axes[i, col].set_yticks(np.arange(pred_final.shape[0]))
+        axes[i, col].set_xticks(np.arange(-0.5, pred_final.shape[1], 1.0), minor=True)
+        axes[i, col].set_yticks(np.arange(-0.5, pred_final.shape[0], 1.0), minor=True)
+        axes[i, col].grid(which="minor", color="white", linewidth=0.3, alpha=0.35)
+        axes[i, col].tick_params(which="minor", bottom=False, left=False)
+        axes[i, col].tick_params(labelsize=6)
+        for row in range(pred_final.shape[0]):
+            for col_idx in range(pred_final.shape[1]):
+                value = pred_final[row, col_idx]
+                if not np.isfinite(value):
+                    continue
+                color = "white" if float(heatmap_artist.norm(value)) < 0.55 else "black"
+                axes[i, col].text(
+                    col_idx,
+                    row,
+                    f"{value:.2g}",
+                    ha="center",
+                    va="center",
+                    fontsize=4.0,
+                    color=color,
+                )
+        if i == 0:
+            axes[i, col].set_title("Gen x_ij")
+        col += 1
+
         axes[i, col].imshow(pred_mask, cmap="gray", vmin=0.0, vmax=1.0)
         axes[i, col].axis("off")
         if i == 0:
