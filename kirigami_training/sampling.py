@@ -116,21 +116,7 @@ def plot_solver_steps(
         axes[i, col].grid(which="minor", color="white", linewidth=0.3, alpha=0.35)
         axes[i, col].tick_params(which="minor", bottom=False, left=False)
         axes[i, col].tick_params(labelsize=6)
-        for row in range(pred_final.shape[0]):
-            for col_idx in range(pred_final.shape[1]):
-                value = pred_final[row, col_idx]
-                if not np.isfinite(value):
-                    continue
-                color = "white" if float(heatmap_artist.norm(value)) < 0.55 else "black"
-                axes[i, col].text(
-                    col_idx,
-                    row,
-                    f"{value:.2g}",
-                    ha="center",
-                    va="center",
-                    fontsize=4.0,
-                    color=color,
-                )
+        fig.colorbar(heatmap_artist, ax=axes[i, col], fraction=0.046, pad=0.04)
         if i == 0:
             axes[i, col].set_title("Gen x_ij")
         col += 1
