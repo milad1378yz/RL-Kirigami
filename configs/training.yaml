@@ -24,7 +24,7 @@ fm_data:
   split_val: "valid"
 
 rl_data:
-  pickle_path: "data_generator/kirigami_x_test_folder_dataset.pkl"
+  pickle_path: "test/kirigami_x_test_folder_dataset.pkl"
   split_train: "test"
   split_val: "test"
 
@@ -84,9 +84,9 @@ rl_training:
   val_freq: 1.0
 
   group_size: 4
-  reward_temperature: 0.2
+  reward_temperature: 0.05
   adv_alpha: null
-  weight_clip: 10.0
+  weight_clip: 30.0
   ref_reg_weight: 0.02
   reward_metric: "siou"
   reward_transform: "none"
