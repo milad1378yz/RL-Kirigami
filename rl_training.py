@@ -83,12 +83,10 @@ def _merge_training_config(config: dict) -> dict:
     base = dict(config.get("training", {}) or {})
     overrides = dict(config.get("rl_training", {}) or {})
     merged = copy.deepcopy(config)
-    training_overrides = {k: v for k, v in overrides.items() if k not in {"data", "data_overrides"}}
-    data_overrides = dict(overrides.get("data", {}) or {})
-    data_overrides.update(dict(overrides.get("data_overrides", {}) or {}))
+    data_overrides = dict(overrides.pop("data", {}) or {})
 
-    if training_overrides:
-        base.update(training_overrides)
+    if overrides:
+        base.update(overrides)
         merged["training"] = base
     if data_overrides:
         data_cfg = dict(merged.get("data", {}) or {})
@@ -102,19 +100,14 @@ def _resolve_rl_checkpoint_paths(
     root_ckpt_dir: str,
     base_run: str,
     run_name: str,
-    resume: Optional[str],
     init_from: Optional[str],
 ) -> tuple[Optional[str], Optional[str]]:
-    resume_ckpt = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
+    resume_ckpt = resolve_checkpoint_path(root_ckpt_dir, run_name, "last")
     if resume_ckpt is not None:
         return resume_ckpt, None
 
-    resume_value = str(resume).strip().lower() if resume is not None else ""
-    if resume_value not in {"", "none", "last"}:
-        print(f"[WARN] Could not resolve --resume '{resume}'. Falling back to init checkpoint.")
-
     init_ckpt = resolve_checkpoint_path(root_ckpt_dir, base_run, init_from)
-    if init_ckpt is None and str(init_from).lower() not in {"", "none"}:
+    if init_ckpt is None and init_from not in {None, "", "none"}:
         raise FileNotFoundError(f"Could not resolve RL init checkpoint '{init_from}'.")
     return None, init_ckpt
 
@@ -180,7 +173,7 @@ class RLFlowMatchModule(pl.LightningModule):
         self.source_noise_std = float(config["training"].get("source_noise_std", 0.5))
 
         self.model = build_model(config, device=torch.device("cpu"))
-        if init_from_ckpt is not None and str(init_from_ckpt).lower() not in {"", "none"}:
+        if init_from_ckpt:
             self._load_model_weights(init_from_ckpt)
 
         self.path = AffineProbPath(scheduler=CondOTScheduler())
@@ -191,17 +184,17 @@ class RLFlowMatchModule(pl.LightningModule):
             "time_points": tr["time_points"],
             "source_noise_std": self.source_noise_std,
         }
-        self.reward_metric = "iou" if str(tr.get("reward_metric", "siou") or "siou").strip().lower() == "iou" else "siou"
+        self.reward_metric = "iou" if tr.get("reward_metric", "siou") == "iou" else "siou"
 
         self.reward_cfg = {
-            "transform": str(tr.get("reward_transform", "none") or "none"),
+            "transform": tr.get("reward_transform", "none"),
             "power": float(tr.get("reward_power", 1.0)),
             "logit_eps": float(tr.get("reward_logit_eps", 1e-4)),
             "scale": float(tr.get("reward_scale", 1.0)),
             "shift": float(tr.get("reward_shift", 0.0)),
             "penalty_scale": float(tr.get("reward_penalty_scale", 1.0)),
         }
-        self.shape_penalty_cfg = dict(tr.get("shape_penalty", {}) or {})
+        self.shape_penalty_cfg = tr.get("shape_penalty", {}) or {}
 
         self.ref_model = None
         if ref_reg_weight > 0.0:
@@ -494,7 +487,7 @@ class RLFlowMatchModule(pl.LightningModule):
         )
         save_epoch_meta(epoch_dir, epoch, self.config)
 
-def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: str = "last") -> None:
+def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
     config = prepare_training_config(_merge_training_config(config))
     tr = config["training"]
     seed_everything(int(tr["seed"]), workers=True)
@@ -554,7 +547,6 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         root_ckpt_dir=root_ckpt_dir,
         base_run=base_run,
         run_name=run_name,
-        resume=resume,
         init_from=init_from,
     )
     if ckpt_path is not None:
@@ -582,12 +574,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="RL fine-tuning for the current kirigami Flow Matching model.")
     parser.add_argument("--config_path", type=str, default="configs/training.yaml")
     parser.add_argument("--init_from", type=str, default="last")
-    parser.add_argument("--resume", type=str, default="last")
     args = parser.parse_args()
 
     config = load_config(args.config_path)
     config = prepare_training_config(config)
-    run_rl_training(config, config_path=args.config_path, init_from=args.init_from, resume=args.resume)
+    run_rl_training(config, config_path=args.config_path, init_from=args.init_from)
 
 
 if __name__ == "__main__":

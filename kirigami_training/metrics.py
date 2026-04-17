@@ -37,7 +37,7 @@ def compute_shape_metrics_batch(
     out_h, out_w = mask_np.shape[-2:]
     rows = int(context["rows"])
     cols = int(context["cols"])
-    use_iou_reward = str(reward_metric or "siou").strip().lower() == "iou"
+    use_iou_reward = reward_metric == "iou"
 
     def _metrics_for_index(i: int):
         pred_mask, geom_metrics, _, _ = render_structure_mask_and_metrics(

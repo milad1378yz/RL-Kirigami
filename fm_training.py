@@ -229,7 +229,7 @@ class FlowMatchModule(pl.LightningModule):
         return configure_adamw_cosine(self.model, self.trainer, self.config["training"])
 
 
-def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -> None:
+def run_flow_training(config: dict, *, config_path: str) -> None:
     tr = config["training"]
     seed_everything(int(tr["seed"]), workers=True)
 
@@ -287,10 +287,9 @@ def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -
     datamodule = KirigamiDataModule(config)
     module = FlowMatchModule(config)
 
-    ckpt_path = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
-    if resume and str(resume).lower() not in {"", "none"}:
-        if ckpt_path is None:
-            print(f"[WARN] Could not resolve --resume '{resume}'. Training from scratch.")
+    ckpt_path = resolve_checkpoint_path(root_ckpt_dir, run_name, "last")
+    if ckpt_path is not None:
+        print(f"Resuming FM from {ckpt_path}")
 
     trainer.fit(module, datamodule=datamodule, ckpt_path=ckpt_path)
 
@@ -300,12 +299,11 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Flow Matching training for the current kirigami x-matrix generator.")
     parser.add_argument("--config_path", type=str, default="configs/training.yaml")
-    parser.add_argument("--resume", type=str, default="last")
     args = parser.parse_args()
 
     config = load_config(args.config_path)
     config = prepare_training_config(config)
-    run_flow_training(config, config_path=args.config_path, resume=args.resume)
+    run_flow_training(config, config_path=args.config_path)
 
 
 if __name__ == "__main__":
