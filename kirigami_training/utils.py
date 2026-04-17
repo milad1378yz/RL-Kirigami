@@ -1,3 +1,4 @@
+import glob
 import json
 import os
 from typing import Optional
@@ -68,6 +69,30 @@ def resolve_run_dir(trainer) -> str:
     if not run_dir:
         run_dir = trainer.default_root_dir
     return run_dir
+
+
+def resolve_last_checkpoint(root_ckpt_dir: str, run_name: str) -> Optional[str]:
+    run_dir = os.path.join(os.path.expanduser(root_ckpt_dir), run_name)
+    last_candidates = sorted(glob.glob(os.path.join(run_dir, "last*.ckpt")), key=os.path.getmtime)
+    if last_candidates:
+        return last_candidates[-1]
+
+    candidates = sorted(glob.glob(os.path.join(run_dir, "*.ckpt")), key=os.path.getmtime)
+    return candidates[-1] if candidates else None
+
+
+def resolve_checkpoint_path(root_ckpt_dir: str, run_name: str, checkpoint: Optional[str]) -> Optional[str]:
+    if checkpoint is None:
+        return None
+
+    checkpoint = str(checkpoint).strip()
+    if checkpoint.lower() in {"", "none"}:
+        return None
+    if checkpoint.lower() == "last":
+        return resolve_last_checkpoint(root_ckpt_dir, run_name)
+
+    checkpoint_path = os.path.expanduser(checkpoint)
+    return checkpoint_path if os.path.isfile(checkpoint_path) else None
 
 
 def prepare_epoch_dirs(run_dir: str, epoch: int) -> tuple[str, str]:

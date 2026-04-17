@@ -1,5 +1,4 @@
 import argparse
-import glob
 import os
 import time
 import warnings
@@ -26,6 +25,7 @@ from kirigami_training.utils import (
     load_config,
     precision_from_config,
     prepare_epoch_dirs,
+    resolve_checkpoint_path,
     resolve_run_dir,
     save_epoch_meta,
     save_validation_artifacts,
@@ -281,19 +281,8 @@ def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -
     datamodule = KirigamiDataModule(config)
     module = FlowMatchModule(config)
 
-    ckpt_path = None
+    ckpt_path = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
     if resume and str(resume).lower() not in {"", "none"}:
-        if str(resume).lower() == "last":
-            run_dir = os.path.join(root_ckpt_dir, run_name)
-            last_ckpt = os.path.join(run_dir, "last.ckpt")
-            if os.path.isfile(last_ckpt):
-                ckpt_path = last_ckpt
-            else:
-                candidates = sorted(glob.glob(os.path.join(run_dir, "*.ckpt")), key=os.path.getmtime)
-                ckpt_path = candidates[-1] if candidates else None
-        else:
-            resume_path = os.path.expanduser(resume)
-            ckpt_path = resume_path if os.path.isfile(resume_path) else None
         if ckpt_path is None:
             print(f"[WARN] Could not resolve --resume '{resume}'. Training from scratch.")
 
