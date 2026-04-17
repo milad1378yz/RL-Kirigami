@@ -57,7 +57,7 @@ def plot_solver_steps(
         return
 
     n_samples = min(int(sol.shape[1]), int(max_plot))
-    total_cols = 7
+    total_cols = 8
 
     fig, axes = plt.subplots(
         n_samples,
@@ -91,6 +91,22 @@ def plot_solver_steps(
                 axes[i, col],
                 pred_final,
                 context,
+                phi=float(np.pi),
+                x_min=x_min,
+                x_max=x_max,
+                normalize_phi=float(np.pi),
+            )
+        except Exception as exc:
+            _plot_invalid(axes[i, col], f"invalid\n{exc}")
+        if i == 0:
+            axes[i, col].set_title("Flat Rectangle + Cuts")
+        col += 1
+
+        try:
+            plot_x_matrix_structure(
+                axes[i, col],
+                pred_final,
+                context,
                 mask_2d=pred_mask,
                 x_min=x_min,
                 x_max=x_max,
@@ -99,7 +115,7 @@ def plot_solver_steps(
         except Exception as exc:
             _plot_invalid(axes[i, col], f"invalid\n{exc}")
         if i == 0:
-            axes[i, col].set_title("Final Step + Mask")
+            axes[i, col].set_title("Deployed + Pred Mask")
         col += 1
 
         heatmap_artist = axes[i, col].imshow(
@@ -171,5 +187,5 @@ def plot_solver_steps(
 
     plt.tight_layout()
     os.makedirs(outdir, exist_ok=True)
-    plt.savefig(os.path.join(outdir, "solver_steps.png"), bbox_inches="tight", pad_inches=0)
+    plt.savefig(os.path.join(outdir, "validation_comparison.png"), bbox_inches="tight", pad_inches=0)
     plt.close(fig)

@@ -17,16 +17,14 @@ model_config:
 
 data:
   generator_config: "configs/data_generator.yaml"
-
-fm_data:
-  pickle_path: "data_generator/kirigami_x_dataset.pkl"
   split_train: "train"
   split_val: "valid"
 
+fm_data:
+  pickle_path: "data_generator/kirigami_x_dataset.pkl"
+
 rl_data:
   pickle_path: "test/kirigami_x_test_folder_dataset.pkl"
-  split_train: "test"
-  split_val: "test"
 
 common_training:
   seed: 42
