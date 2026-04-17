@@ -29,6 +29,7 @@ from kirigami_training.utils import (
     resolve_run_dir,
     save_epoch_meta,
     save_validation_artifacts,
+    TrainingTQDMProgressBar,
 )
 
 
@@ -117,7 +118,8 @@ class FlowMatchModule(pl.LightningModule):
         images = batch["images"]
         masks = batch["masks"]
         loss = self._flow_matching_loss(images, masks)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("train/loss_step", loss, on_step=True, on_epoch=False, prog_bar=True, logger=False, sync_dist=True)
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], on_step=True)
         return loss
 
@@ -149,7 +151,7 @@ class FlowMatchModule(pl.LightningModule):
             device=self.device,
         )
 
-        self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val/IoU", metrics["iou"].mean(), on_epoch=True, prog_bar=False, sync_dist=True)
         self.log("val/SIoU", metrics["siou"].mean(), on_epoch=True, prog_bar=True, sync_dist=True)
         self.log(
             "val/fill_error_mean",
@@ -254,7 +256,7 @@ def run_flow_training(config: dict, *, config_path: str, resume: str = "last") -
         every_n_epochs=(None if tr.get("ckpt_every_n_steps") else max(1, int(tr["val_freq"]))),
         save_on_train_epoch_end=(False if tr.get("ckpt_every_n_steps") else True),
     )
-    callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step")]
+    callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step"), TrainingTQDMProgressBar()]
     if tr.get("swa", False):
         callbacks.append(StochasticWeightAveraging(swa_lrs=float(tr["swa_lr"])))
 

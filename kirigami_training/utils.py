@@ -5,6 +5,7 @@ from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+from pytorch_lightning.callbacks import TQDMProgressBar
 import torch
 import yaml
 
@@ -93,6 +94,20 @@ def resolve_checkpoint_path(root_ckpt_dir: str, run_name: str, checkpoint: Optio
 
     checkpoint_path = os.path.expanduser(checkpoint)
     return checkpoint_path if os.path.isfile(checkpoint_path) else None
+
+
+class TrainingTQDMProgressBar(TQDMProgressBar):
+    def get_metrics(self, trainer, pl_module) -> dict[str, object]:
+        progress_metrics = trainer.progress_bar_metrics
+        metrics: dict[str, object] = {}
+        for source_name, display_name in (
+            ("train/loss_step", "train_loss"),
+            ("val/loss", "val_loss"),
+            ("val/SIoU", "val_SIoU"),
+        ):
+            if source_name in progress_metrics:
+                metrics[display_name] = progress_metrics[source_name]
+        return metrics
 
 
 def prepare_epoch_dirs(run_dir: str, epoch: int) -> tuple[str, str]:
