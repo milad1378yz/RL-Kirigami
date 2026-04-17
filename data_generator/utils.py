@@ -14,6 +14,13 @@ MAX_COND = 1e20
 MASK_MIN_FILL = 0.03
 MASK_MAX_FILL = 0.97
 MAX_OVERLAP = 0.02
+DEFAULT_DATASET_FILTERS = {
+    "reject_invalid_quads": True,
+    "reject_holes": True,
+    "mask_min_fill": MASK_MIN_FILL,
+    "mask_max_fill": MASK_MAX_FILL,
+    "max_overlap": MAX_OVERLAP,
+}
 
 
 def is_horizontal(i, j):
@@ -610,6 +617,43 @@ def render_structure_mask_and_metrics(
         return np.zeros((height, width), dtype=np.float32), metrics, None, clipped
 
 
+def resolve_dataset_filters(filters=None):
+    resolved = dict(DEFAULT_DATASET_FILTERS)
+    if not filters:
+        return resolved
+
+    if "reject_invalid_quads" in filters:
+        resolved["reject_invalid_quads"] = bool(filters["reject_invalid_quads"])
+    if "reject_holes" in filters:
+        resolved["reject_holes"] = bool(filters["reject_holes"])
+    if "mask_min_fill" in filters and filters["mask_min_fill"] is not None:
+        resolved["mask_min_fill"] = float(filters["mask_min_fill"])
+    if "mask_max_fill" in filters and filters["mask_max_fill"] is not None:
+        resolved["mask_max_fill"] = float(filters["mask_max_fill"])
+    if "max_overlap" in filters and filters["max_overlap"] is not None:
+        resolved["max_overlap"] = float(filters["max_overlap"])
+    return resolved
+
+
+def dataset_entry_filter_reason(metrics, filters=None):
+    resolved = resolve_dataset_filters(filters)
+    if not bool(metrics.get("ok", False)):
+        return "build_failed"
+    if resolved["reject_invalid_quads"] and int(metrics.get("invalid_quad_count", 0) or 0) > 0:
+        return "invalid_quads"
+    if resolved["reject_holes"] and bool(metrics.get("has_holes", False)):
+        return "holes"
+
+    fill_ratio = float(metrics.get("fill_ratio", 0.0) or 0.0)
+    if fill_ratio < resolved["mask_min_fill"]:
+        return "fill_too_small"
+    if fill_ratio > resolved["mask_max_fill"]:
+        return "fill_too_large"
+    if float(metrics.get("overlap_ratio", 0.0) or 0.0) > resolved["max_overlap"]:
+        return "overlap"
+    return None
+
+
 def mask_iou(pred_mask, gt_mask, threshold=0.5):
     pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
     gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
@@ -783,7 +827,16 @@ def mask_overlay_rgb(pred_mask, gt_mask, threshold=0.5):
     return overlay
 
 
-def build_dataset_entry(rows, cols, x_matrix, context, height, width):
+def build_dataset_entry(
+    rows,
+    cols,
+    x_matrix,
+    context,
+    height,
+    width,
+    filters=None,
+    return_filter_reason=False,
+):
     mask, metrics, _, clipped = render_structure_mask_and_metrics(
         rows,
         cols,
@@ -792,22 +845,19 @@ def build_dataset_entry(rows, cols, x_matrix, context, height, width):
         height,
         width,
     )
-    if not metrics["ok"] or metrics["invalid_quad_count"] > 0:
-        return None
-    if metrics["has_holes"]:
-        return None
-    if metrics["fill_ratio"] < MASK_MIN_FILL or metrics["fill_ratio"] > MASK_MAX_FILL:
-        return None
-    if metrics["overlap_ratio"] > MAX_OVERLAP:
-        return None
-
-    return {
-        "image": clipped.astype(np.float32)[None, :, :],
-        "mask": mask[None, :, :],
-        "metadata": {
-            "grid_rows": rows,
-            "grid_cols": cols,
-            "phi_mask": 0.0,
-            "x_matrix": clipped.astype(np.float32),
-        },
-    }
+    reject_reason = dataset_entry_filter_reason(metrics, filters=filters)
+    entry = None
+    if reject_reason is None:
+        entry = {
+            "image": clipped.astype(np.float32)[None, :, :],
+            "mask": mask[None, :, :],
+            "metadata": {
+                "grid_rows": rows,
+                "grid_cols": cols,
+                "phi_mask": 0.0,
+                "x_matrix": clipped.astype(np.float32),
+            },
+        }
+    if return_filter_reason:
+        return entry, reject_reason
+    return entry

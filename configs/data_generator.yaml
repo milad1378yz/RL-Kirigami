@@ -9,6 +9,13 @@ x_min: 0.1
 x_max: 10.0
 sampler: structured
 seed: 42
+max_attempt_multiplier: 12
+filters:
+  reject_invalid_quads: true
+  reject_holes: true
+  mask_min_fill: 0.03
+  mask_max_fill: 0.97
+  max_overlap: 0.02
 preview_count: 6
 gif_count: 2
 gif_frames: 60
