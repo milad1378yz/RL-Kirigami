@@ -29,6 +29,7 @@ from kirigami_training.utils import (
     resolve_checkpoint_path,
     resolve_run_dir,
     save_epoch_meta,
+    select_training_config,
     save_validation_artifacts,
     TrainingTQDMProgressBar,
 )
@@ -76,23 +77,6 @@ def _group_softmax_weights(
         weights = weights.clamp(min=1.0 / float(weight_clip), max=float(weight_clip))
         weights = weights / (weights.mean(dim=1, keepdim=True) + 1e-8)
     return weights.view(-1).detach()
-
-
-def _merge_training_config(config: dict) -> dict:
-    base = dict(config.get("training", {}) or {})
-    overrides = dict(config.get("rl_training", {}) or {})
-    merged = copy.deepcopy(config)
-    data_overrides = dict(overrides.pop("data", {}) or {})
-
-    if overrides:
-        base.update(overrides)
-        base.pop("max_steps", None)
-        merged["training"] = base
-    if data_overrides:
-        data_cfg = dict(merged.get("data", {}) or {})
-        data_cfg.update(data_overrides)
-        merged["data"] = data_cfg
-    return merged
 
 
 def _resolve_rl_validation_schedule(val_freq_value: float | int) -> tuple[int, Optional[float]]:
@@ -481,7 +465,6 @@ class RLFlowMatchModule(pl.LightningModule):
         save_epoch_meta(epoch_dir, epoch, self.config)
 
 def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
-    config = prepare_training_config(_merge_training_config(config))
     tr = config["training"]
     check_val_every_n_epoch, val_check_interval = _resolve_rl_validation_schedule(tr["val_freq"])
     seed_everything(int(tr["seed"]), workers=True)
@@ -567,6 +550,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+    config = select_training_config(config, "rl_training")
     config = prepare_training_config(config)
     run_rl_training(config, config_path=args.config_path, init_from=args.init_from)
 

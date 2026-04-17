@@ -18,21 +18,17 @@ model_config:
 data:
   generator_config: "configs/data_generator.yaml"
   pickle_path: "data_generator/kirigami_x_dataset.pkl"
+
+fm_data:
   split_train: "train"
   split_val: "valid"
 
-training:
-  seed: 42
-  num_epochs: 1000
-  batch_size: 256
-  val_batch_size: 256
-  lr: 2.0e-5
-  weight_decay: 0.05
-  warmup_epochs: 1
-  min_lr_factor: 0.1
-  max_steps: -1
-  gradient_accumulation_steps: 1
+rl_data:
+  split_train: "test"
+  split_val: "test"
 
+common_training:
+  seed: 42
   mixed_precision: "bf16"
   accelerator: "gpu"
   devices: "auto"
@@ -43,15 +39,13 @@ training:
   time_points: 9
   source_noise_std: 0.5
 
-  val_freq: 20
-  num_val_samples: 10
   checkpoint_dir: "checkpoints"
   swa: true
   swa_lr: 2.0e-6
   grad_clip_norm: 1.0
   deterministic: true
   log_every_n_steps: 50
-  val_check_interval: null
+  num_val_samples: 10
 
   num_workers: 4
   pin_memory: true
@@ -64,15 +58,30 @@ training:
 
   mask_threshold: 0.5
 
+fm_training:
+  num_epochs: 1000
+  batch_size: 256
+  val_batch_size: 256
+  lr: 2.0e-5
+  weight_decay: 0.05
+  warmup_epochs: 1
+  min_lr_factor: 0.1
+  max_steps: -1
+  gradient_accumulation_steps: 1
+  val_freq: 20
+  val_check_interval: null
+
 rl_training:
-  data:
-    split_train: "test"
-    split_val: "test"
   num_epochs: 20
-  val_freq: 1.0
   batch_size: 8
   val_batch_size: 16
   lr: 1.0e-5
+  weight_decay: 0.05
+  warmup_epochs: 1
+  min_lr_factor: 0.1
+  gradient_accumulation_steps: 1
+  val_freq: 1.0
+
   group_size: 4
   reward_temperature: 0.2
   adv_alpha: null

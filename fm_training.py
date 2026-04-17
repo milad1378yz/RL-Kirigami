@@ -28,6 +28,7 @@ from kirigami_training.utils import (
     resolve_checkpoint_path,
     resolve_run_dir,
     save_epoch_meta,
+    select_training_config,
     save_validation_artifacts,
     TrainingTQDMProgressBar,
 )
@@ -292,6 +293,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(args.config_path)
+    config = select_training_config(config, "fm_training")
     config = prepare_training_config(config)
     run_flow_training(config, config_path=args.config_path)
 
