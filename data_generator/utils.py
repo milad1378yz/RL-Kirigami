@@ -5,6 +5,7 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/kirigami_x_mplconfig")
 
 import numpy as np
 from matplotlib.path import Path
+from scipy.ndimage import binary_fill_holes, label
 
 
 RIDGE_THRESHOLD = 1e12
@@ -504,6 +505,26 @@ def overlap_ratio(points, quads, mask, scale):
     return max(0.0, min(1.0, 1.0 - union_area / total))
 
 
+def mask_hole_metrics(mask, threshold=0.5):
+    mask_bool = np.asarray(mask, dtype=np.float32) >= float(threshold)
+    filled = binary_fill_holes(mask_bool)
+    hole_mask = np.logical_and(filled, np.logical_not(mask_bool))
+    hole_pixels = int(hole_mask.sum())
+    if hole_pixels == 0:
+        return {
+            "has_holes": False,
+            "hole_count": 0,
+            "hole_fraction": 0.0,
+        }
+
+    _, hole_count = label(hole_mask)
+    return {
+        "has_holes": True,
+        "hole_count": int(hole_count),
+        "hole_fraction": float(hole_pixels / max(1, hole_mask.size)),
+    }
+
+
 def quad_is_valid(poly):
     if not np.all(np.isfinite(poly)):
         return False
@@ -549,6 +570,9 @@ def render_structure_mask_and_metrics(
         "invalid_quad_count": 0,
         "overlap_ratio": 1.0,
         "fill_ratio": 0.0,
+        "has_holes": False,
+        "hole_count": 0,
+        "hole_fraction": 0.0,
         "range_violation_l1": range_stats["range_violation_l1"],
         "range_violation_max": range_stats["range_violation_max"],
         "clipped_fraction": range_stats["clipped_fraction"],
@@ -568,12 +592,16 @@ def render_structure_mask_and_metrics(
             not quad_is_valid(posed_points[np.asarray(quad, dtype=int)]) for quad in context["quads"]
         )
         mask, scale = rasterize(posed_points, context["quads"], height, width)
+        hole_metrics = mask_hole_metrics(mask)
         metrics.update(
             {
                 "ok": True,
                 "invalid_quad_count": int(invalid_count),
                 "overlap_ratio": float(overlap_ratio(posed_points, context["quads"], mask, scale)),
                 "fill_ratio": float(mask.mean()),
+                "has_holes": bool(hole_metrics["has_holes"]),
+                "hole_count": int(hole_metrics["hole_count"]),
+                "hole_fraction": float(hole_metrics["hole_fraction"]),
             }
         )
         return mask, metrics, posed_points, clipped
@@ -591,33 +619,14 @@ def mask_iou(pred_mask, gt_mask, threshold=0.5):
     return float(np.logical_and(pred, gt).sum() / union)
 
 
-def _mask_similarity_stats(mask):
+def _mask_centroid_and_area(mask):
     ys, xs = np.nonzero(mask)
     area = int(xs.size)
     if area == 0:
-        return None
-
-    coords = np.column_stack((xs.astype(np.float64), ys.astype(np.float64)))
-    center = coords.mean(axis=0)
-    centered = coords - center
-    if area >= 2:
-        cov = (centered.T @ centered) / float(area)
-        evals, evecs = np.linalg.eigh(cov)
-        major = evecs[:, int(np.argmax(evals))]
-        angle = math.atan2(float(major[1]), float(major[0]))
-        major_val = max(float(evals.max()), 0.0)
-        minor_val = max(float(evals.min()), 0.0)
-        anisotropy = (major_val + 1e-6) / (minor_val + 1e-6)
-    else:
-        angle = 0.0
-        anisotropy = 1.0
-
-    return {
-        "area": float(area),
-        "center": center,
-        "angle": angle,
-        "anisotropy": anisotropy,
-    }
+        return None, 0
+    cx = float(xs.mean())
+    cy = float(ys.mean())
+    return np.array([cx, cy], dtype=np.float64), area
 
 
 def _warp_mask_similarity(mask, *, scale, angle, src_center, dst_center, output_shape):
@@ -646,52 +655,121 @@ def mask_siou(
     gt_mask,
     threshold=0.5,
     *,
-    isotropy_ratio_threshold=1.15,
-    coarse_angle_steps=24,
+    coarse_angle_steps=72,
+    joint_passes=3,
+    translation_search_px=4.0,
+    scale_search_frac=0.12,
+    local_samples=7,
+    return_alignment=False,
 ):
     pred = np.asarray(pred_mask, dtype=np.float32) >= threshold
     gt = np.asarray(gt_mask, dtype=np.float32) >= threshold
 
-    pred_stats = _mask_similarity_stats(pred)
-    gt_stats = _mask_similarity_stats(gt)
-    if pred_stats is None or gt_stats is None:
+    pred_center, pred_area = _mask_centroid_and_area(pred)
+    gt_center, gt_area = _mask_centroid_and_area(gt)
+    if pred_area == 0 or gt_area == 0:
+        if return_alignment:
+            return 0.0, np.zeros_like(pred, dtype=bool), None
         return 0.0
 
-    scale = math.sqrt(pred_stats["area"] / max(gt_stats["area"], 1e-6))
-    base_angle = float(pred_stats["angle"] - gt_stats["angle"])
-    candidates = [base_angle, base_angle + math.pi]
-    if (
-        pred_stats["anisotropy"] < float(isotropy_ratio_threshold)
-        or gt_stats["anisotropy"] < float(isotropy_ratio_threshold)
-    ):
-        candidates.extend((2.0 * math.pi * k) / int(coarse_angle_steps) for k in range(int(coarse_angle_steps)))
+    base_scale = math.sqrt(float(pred_area) / max(float(gt_area), 1e-6))
 
-    unique = []
-    seen = set()
-    period = 2.0 * math.pi
-    for angle in candidates:
-        key = round(float(angle % period), 6)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(float(angle))
-
-    best = 0.0
-    for angle in unique:
+    def _score(angle, scale, tx, ty):
+        dst = (float(pred_center[0]) + float(tx), float(pred_center[1]) + float(ty))
         aligned_gt = _warp_mask_similarity(
             gt,
             scale=scale,
             angle=angle,
-            src_center=gt_stats["center"],
-            dst_center=pred_stats["center"],
+            src_center=gt_center,
+            dst_center=dst,
             output_shape=pred.shape,
         )
         union = np.logical_or(pred, aligned_gt).sum()
         if union == 0:
-            continue
-        score = float(np.logical_and(pred, aligned_gt).sum() / union)
+            return 0.0
+        return float(np.logical_and(pred, aligned_gt).sum() / union)
+
+    steps = max(4, int(coarse_angle_steps))
+    coarse_step = 2.0 * math.pi / float(steps)
+    best_angle = 0.0
+    best_scale = base_scale
+    best_tx = 0.0
+    best_ty = 0.0
+    best = 0.0
+    for k in range(steps):
+        angle = coarse_step * k
+        score = _score(angle, base_scale, 0.0, 0.0)
         if score > best:
             best = score
+            best_angle = angle
+
+    def _refine(values, setter):
+        nonlocal best
+        for value in values:
+            score = setter(value)
+            if score > best:
+                best = score
+                return value
+        return None
+
+    angle_window = coarse_step
+    trans_window = float(translation_search_px)
+    scale_window = float(scale_search_frac) * base_scale
+    n_samples = max(3, int(local_samples))
+
+    for _ in range(max(1, int(joint_passes))):
+        angle_offsets = np.linspace(-angle_window, angle_window, n_samples)
+        new_angle = _refine(
+            (best_angle + o for o in angle_offsets if o != 0.0),
+            lambda a: _score(a, best_scale, best_tx, best_ty),
+        )
+        if new_angle is not None:
+            best_angle = new_angle
+
+        scale_offsets = np.linspace(-scale_window, scale_window, n_samples)
+        new_scale = _refine(
+            (max(1e-6, best_scale + o) for o in scale_offsets if o != 0.0),
+            lambda s: _score(best_angle, s, best_tx, best_ty),
+        )
+        if new_scale is not None:
+            best_scale = new_scale
+
+        tx_offsets = np.linspace(-trans_window, trans_window, n_samples)
+        new_tx = _refine(
+            (best_tx + o for o in tx_offsets if o != 0.0),
+            lambda t: _score(best_angle, best_scale, t, best_ty),
+        )
+        if new_tx is not None:
+            best_tx = new_tx
+
+        ty_offsets = np.linspace(-trans_window, trans_window, n_samples)
+        new_ty = _refine(
+            (best_ty + o for o in ty_offsets if o != 0.0),
+            lambda t: _score(best_angle, best_scale, best_tx, t),
+        )
+        if new_ty is not None:
+            best_ty = new_ty
+
+        angle_window *= 0.5
+        trans_window *= 0.5
+        scale_window *= 0.5
+
+    if return_alignment:
+        aligned_gt = _warp_mask_similarity(
+            gt,
+            scale=best_scale,
+            angle=best_angle,
+            src_center=gt_center,
+            dst_center=(float(pred_center[0]) + best_tx, float(pred_center[1]) + best_ty),
+            output_shape=pred.shape,
+        )
+        transform = {
+            "angle": float(best_angle),
+            "scale": float(best_scale),
+            "tx": float(best_tx),
+            "ty": float(best_ty),
+        }
+        return best, aligned_gt, transform
     return best
 
 
@@ -715,6 +793,8 @@ def build_dataset_entry(rows, cols, x_matrix, context, height, width):
         width,
     )
     if not metrics["ok"] or metrics["invalid_quad_count"] > 0:
+        return None
+    if metrics["has_holes"]:
         return None
     if metrics["fill_ratio"] < MASK_MIN_FILL or metrics["fill_ratio"] > MASK_MAX_FILL:
         return None
