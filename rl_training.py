@@ -132,7 +132,7 @@ def _adv_weighted_flow_matching_loss(
     loss = (weights * per_sample).mean()
 
     if ref_model is not None and ref_reg_weight > 0.0:
-        with torch.inference_mode():
+        with torch.no_grad():
             ref_pred = ref_model(sample_info.x_t, sample_info.t, masks)
         loss = loss + float(ref_reg_weight) * F.mse_loss(pred, ref_pred, reduction="mean")
     return loss
@@ -263,7 +263,7 @@ class RLFlowMatchModule(pl.LightningModule):
 
         was_training = self.model.training
         self.model.eval()
-        with torch.inference_mode():
+        with torch.no_grad():
             sol = sample_with_solver(
                 model=self.model,
                 x_init=x0s,
@@ -396,7 +396,7 @@ class RLFlowMatchModule(pl.LightningModule):
         self.log("val/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         metric_masks = batch["metric_masks"]
 
-        with torch.inference_mode():
+        with torch.no_grad():
             sol = sample_with_solver(
                 self.model,
                 self.source_noise_std * torch.randn_like(batch["images"]),
