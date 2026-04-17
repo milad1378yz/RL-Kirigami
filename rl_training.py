@@ -83,10 +83,40 @@ def _merge_training_config(config: dict) -> dict:
     base = dict(config.get("training", {}) or {})
     overrides = dict(config.get("rl_training", {}) or {})
     merged = copy.deepcopy(config)
-    if overrides:
-        base.update(overrides)
+    training_overrides = {k: v for k, v in overrides.items() if k not in {"data", "data_overrides"}}
+    data_overrides = dict(overrides.get("data", {}) or {})
+    data_overrides.update(dict(overrides.get("data_overrides", {}) or {}))
+
+    if training_overrides:
+        base.update(training_overrides)
         merged["training"] = base
+    if data_overrides:
+        data_cfg = dict(merged.get("data", {}) or {})
+        data_cfg.update(data_overrides)
+        merged["data"] = data_cfg
     return merged
+
+
+def _resolve_rl_checkpoint_paths(
+    *,
+    root_ckpt_dir: str,
+    base_run: str,
+    run_name: str,
+    resume: Optional[str],
+    init_from: Optional[str],
+) -> tuple[Optional[str], Optional[str]]:
+    resume_ckpt = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
+    if resume_ckpt is not None:
+        return resume_ckpt, None
+
+    resume_value = str(resume).strip().lower() if resume is not None else ""
+    if resume_value not in {"", "none", "last"}:
+        print(f"[WARN] Could not resolve --resume '{resume}'. Falling back to init checkpoint.")
+
+    init_ckpt = resolve_checkpoint_path(root_ckpt_dir, base_run, init_from)
+    if init_ckpt is None and str(init_from).lower() not in {"", "none"}:
+        raise FileNotFoundError(f"Could not resolve RL init checkpoint '{init_from}'.")
+    return None, init_ckpt
 
 
 def _adv_weighted_flow_matching_loss(
@@ -161,12 +191,10 @@ class RLFlowMatchModule(pl.LightningModule):
             "time_points": tr["time_points"],
             "source_noise_std": self.source_noise_std,
         }
-        self.reward_metric = str(tr.get("reward_metric", "siou") or "siou").lower()
-        if self.reward_metric not in {"iou", "siou"}:
-            raise ValueError("reward_metric must be 'iou' or 'siou' for the current shape pipeline.")
+        self.reward_metric = "iou" if str(tr.get("reward_metric", "siou") or "siou").strip().lower() == "iou" else "siou"
 
         self.reward_cfg = {
-            "transform": str(tr.get("reward_transform", "logit") or "logit"),
+            "transform": str(tr.get("reward_transform", "none") or "none"),
             "power": float(tr.get("reward_power", 1.0)),
             "logit_eps": float(tr.get("reward_logit_eps", 1e-4)),
             "scale": float(tr.get("reward_scale", 1.0)),
@@ -199,7 +227,8 @@ class RLFlowMatchModule(pl.LightningModule):
         in_h, in_w = tuple(config["model_config"]["input_size"])
         mask_h, mask_w = tuple(config["model_config"]["mask_size"])
         self.example_input_array = {
-            "images": torch.randn(2, channels, in_h, in_w),
+            "x": torch.randn(2, channels, in_h, in_w),
+            "t": torch.rand(2),
             "masks": torch.randn(2, 1, mask_h, mask_w),
         }
 
@@ -211,6 +240,14 @@ class RLFlowMatchModule(pl.LightningModule):
         print(
             f"Loaded model weights from {ckpt_path}. Missing: {len(missing)} Unexpected: {len(unexpected)}"
         )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.model(x, t, masks)
 
     def configure_optimizers(self):
         return configure_adamw_cosine(self.model, self.trainer, self.config["training"])
@@ -458,7 +495,7 @@ class RLFlowMatchModule(pl.LightningModule):
         save_epoch_meta(epoch_dir, epoch, self.config)
 
 def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: str = "last") -> None:
-    config = _merge_training_config(config)
+    config = prepare_training_config(_merge_training_config(config))
     tr = config["training"]
     seed_everything(int(tr["seed"]), workers=True)
 
@@ -513,9 +550,17 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         num_sanity_val_steps=int(tr.get("num_sanity_val_steps", 0)),
     )
 
-    resolved_init = resolve_checkpoint_path(root_ckpt_dir, base_run, init_from)
-    if resolved_init is None and str(init_from).lower() not in {"", "none"}:
-        raise FileNotFoundError(f"Could not resolve RL init checkpoint '{init_from}'.")
+    ckpt_path, resolved_init = _resolve_rl_checkpoint_paths(
+        root_ckpt_dir=root_ckpt_dir,
+        base_run=base_run,
+        run_name=run_name,
+        resume=resume,
+        init_from=init_from,
+    )
+    if ckpt_path is not None:
+        print(f"Resuming RL from {ckpt_path}")
+    elif resolved_init is not None:
+        print(f"Initializing RL from {resolved_init}")
 
     datamodule = KirigamiDataModule(config)
     module = RLFlowMatchModule(
@@ -527,11 +572,6 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str, resume: s
         ref_reg_weight=float(tr.get("ref_reg_weight", 0.0) or 0.0),
         init_from_ckpt=resolved_init,
     )
-
-    ckpt_path = resolve_checkpoint_path(root_ckpt_dir, run_name, resume)
-    if resume and str(resume).lower() not in {"", "none"}:
-        if ckpt_path is None:
-            print(f"[WARN] Could not resolve --resume '{resume}'. Starting RL without resume.")
 
     trainer.fit(module, datamodule=datamodule, ckpt_path=ckpt_path)
 

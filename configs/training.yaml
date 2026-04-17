@@ -47,7 +47,7 @@ training:
   source_noise_std: 0.5
 
   val_freq: 20
-  num_val_samples: 4
+  num_val_samples: 10
   checkpoint_dir: "checkpoints"
   swa: true
   swa_lr: 2.0e-6
@@ -71,6 +71,9 @@ training:
   metric_workers: 1
 
 rl_training:
+  data:
+    split_train: "test"
+    split_val: "test"
   num_epochs: 20
   batch_size: 8
   val_batch_size: 16
@@ -82,7 +85,7 @@ rl_training:
   weight_clip: 10.0
   ref_reg_weight: 0.02
   reward_metric: "siou"
-  reward_transform: "logit"
+  reward_transform: "none"
   reward_power: 1.0
   reward_logit_eps: 1.0e-4
   reward_scale: 1.0
@@ -91,7 +94,7 @@ rl_training:
   reward_workers: 1
   val_metric_workers: 1
   shape_penalty:
-    enabled: true
+    enabled: false
     build_fail: 5.0
     invalid_any: 2.0
     invalid_per_quad: 0.0
