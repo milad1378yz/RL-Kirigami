@@ -2,9 +2,11 @@ import argparse
 import math
 import os
 import pickle
+from contextlib import nullcontext
 import numpy as np
 import yaml
 from scipy import ndimage
+from tqdm import tqdm
 
 from data_generator.utils import build_dataset_entry, build_geometry_context
 from data_generator.visualization import save_gifs, save_preview
@@ -183,17 +185,37 @@ def _sample_x_matrix(rng, rows, cols, x_min, x_max, sampler, basis, family_idx):
     return _sample_structured_x_matrix(rng, basis, x_min, x_max, family_name)
 
 
-def generate_valid_samples(rows, cols, height, width, target_count, rng, x_min, x_max, context, sampler):
+def generate_valid_samples(
+    rows,
+    cols,
+    height,
+    width,
+    target_count,
+    rng,
+    x_min,
+    x_max,
+    context,
+    sampler,
+    progress_desc=None,
+):
     samples = []
     attempts = 0
     max_attempts = max(100, 12 * target_count)
     basis = _build_sampling_basis(rows, cols) if sampler == "structured" else None
-    while len(samples) < target_count and attempts < max_attempts:
-        x_matrix = _sample_x_matrix(rng, rows, cols, x_min, x_max, sampler, basis, attempts)
-        entry = build_dataset_entry(rows, cols, x_matrix, context, height, width)
-        if entry is not None:
-            samples.append(entry)
-        attempts += 1
+    progress_context = (
+        tqdm(total=target_count, desc=progress_desc, unit="sample", disable=target_count <= 0)
+        if progress_desc
+        else nullcontext()
+    )
+    with progress_context as progress:
+        while len(samples) < target_count and attempts < max_attempts:
+            x_matrix = _sample_x_matrix(rng, rows, cols, x_min, x_max, sampler, basis, attempts)
+            entry = build_dataset_entry(rows, cols, x_matrix, context, height, width)
+            if entry is not None:
+                samples.append(entry)
+                if progress is not None:
+                    progress.update(1)
+            attempts += 1
     return samples, attempts
 
 
@@ -267,6 +289,7 @@ def main():
         args.x_max,
         geometry_context,
         args.sampler,
+        progress_desc="train",
     )
     valid_samples, valid_attempts = generate_valid_samples(
         rows,
@@ -279,6 +302,7 @@ def main():
         args.x_max,
         geometry_context,
         args.sampler,
+        progress_desc="valid",
     )
     test_samples, test_attempts = generate_valid_samples(
         rows,
@@ -291,6 +315,7 @@ def main():
         args.x_max,
         geometry_context,
         args.sampler,
+        progress_desc="test",
     )
 
     with open(out_path, "wb") as handle:
