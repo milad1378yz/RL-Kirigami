@@ -1,5 +1,6 @@
 import math
-from typing import Callable, Optional
+from typing import Optional
+
 
 def shape_penalty_from_metrics(metrics: dict, cfg: Optional[dict]) -> float:
     if not cfg or not bool(cfg.get("enabled", False)):
@@ -32,50 +33,24 @@ def shape_penalty_from_metrics(metrics: dict, cfg: Optional[dict]) -> float:
     return float(penalty)
 
 
-def _identity_reward(metric: float, _: dict) -> float:
-    return float(metric)
-
-
-def _logit_reward(metric: float, cfg: dict) -> float:
-    eps = max(1e-6, min(0.49, float(cfg.get("logit_eps", 1e-6))))
-    clipped = min(max(float(metric), eps), 1.0 - eps)
-    return math.log(clipped / (1.0 - clipped))
-
-
-def _power_reward(metric: float, cfg: dict) -> float:
-    return max(0.0, float(metric)) ** float(cfg.get("power", 1.0))
-
-
-def _sqrt_reward(metric: float, _: dict) -> float:
-    return math.sqrt(max(0.0, float(metric)))
-
-
-def _log1p_reward(metric: float, _: dict) -> float:
-    return math.log1p(max(0.0, float(metric)))
-
-
-_REWARD_TRANSFORMS: dict[str, Callable[[float, dict], float]] = {
-    "none": _identity_reward,
-    "identity": _identity_reward,
-    "linear": _identity_reward,
-    "logit": _logit_reward,
-    "power": _power_reward,
-    "sqrt": _sqrt_reward,
-    "log1p": _log1p_reward,
-}
-
-
 def compute_shape_reward(metric: float, penalty: float, cfg: dict) -> tuple[float, float]:
-    transform_name = str(cfg.get("transform", "none") or "none").strip().lower()
-    if transform_name not in _REWARD_TRANSFORMS:
-        supported = ", ".join(sorted(_REWARD_TRANSFORMS))
-        raise ValueError(f"Unsupported reward transform '{transform_name}'. Expected one of: {supported}.")
-
     metric_value = float(metric)
     penalty_value = float(penalty)
     raw_reward = metric_value - penalty_value
 
-    transformed = _REWARD_TRANSFORMS[transform_name](metric_value, cfg)
+    transform = cfg.get("transform", "none")
+    transformed = metric_value
+    if transform == "logit":
+        eps = max(1e-6, min(0.49, float(cfg.get("logit_eps", 1e-6))))
+        clipped = min(max(metric_value, eps), 1.0 - eps)
+        transformed = math.log(clipped / (1.0 - clipped))
+    elif transform == "power":
+        transformed = max(0.0, metric_value) ** float(cfg.get("power", 1.0))
+    elif transform == "sqrt":
+        transformed = math.sqrt(max(0.0, metric_value))
+    elif transform == "log1p":
+        transformed = math.log1p(max(0.0, metric_value))
+
     shaped_reward = float(cfg.get("scale", 1.0)) * transformed + float(cfg.get("shift", 0.0))
     shaped_reward -= float(cfg.get("penalty_scale", 1.0)) * penalty_value
     return float(raw_reward), float(shaped_reward)
