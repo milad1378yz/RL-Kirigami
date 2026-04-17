@@ -69,6 +69,7 @@ rl_training:
     split_train: "test"
     split_val: "test"
   num_epochs: 20
+  val_freq: 1.0
   batch_size: 8
   val_batch_size: 16
   lr: 1.0e-5

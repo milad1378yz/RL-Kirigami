@@ -94,6 +94,13 @@ def _merge_training_config(config: dict) -> dict:
     return merged
 
 
+def _resolve_rl_validation_schedule(val_freq_value: float | int) -> tuple[int, Optional[float]]:
+    val_freq = float(val_freq_value)
+    if val_freq < 1.0:
+        return 1, val_freq
+    return int(val_freq), None
+
+
 def _resolve_rl_checkpoint_paths(
     *,
     root_ckpt_dir: str,
@@ -168,6 +175,7 @@ class RLFlowMatchModule(pl.LightningModule):
         self.x_max = config["data"].get("x_max")
         self.metric_threshold = float(config["training"].get("mask_threshold", 0.5))
         self.source_noise_std = float(config["training"].get("source_noise_std", 0.5))
+        self.val_freq = float(config["training"]["val_freq"])
 
         self.model = build_model(config, device=torch.device("cpu"))
         if init_from_ckpt:
@@ -446,7 +454,9 @@ class RLFlowMatchModule(pl.LightningModule):
         )
 
     def on_validation_epoch_end(self) -> None:
-        if (self.current_epoch + 1) % int(self.config["training"]["val_freq"]) != 0:
+        if self.val_freq < 1.0 and not self.trainer.is_last_batch:
+            return
+        if self.val_freq >= 1.0 and (self.current_epoch + 1) % int(self.val_freq) != 0:
             return
         if not self.trainer.is_global_zero:
             return
@@ -472,6 +482,7 @@ class RLFlowMatchModule(pl.LightningModule):
 def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
     config = prepare_training_config(_merge_training_config(config))
     tr = config["training"]
+    check_val_every_n_epoch, val_check_interval = _resolve_rl_validation_schedule(tr["val_freq"])
     seed_everything(int(tr["seed"]), workers=True)
 
     precision = precision_from_config(tr["mixed_precision"])
@@ -497,8 +508,7 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
         save_top_k=3,
         save_last=True,
         auto_insert_metric_name=False,
-        every_n_epochs=max(1, int(tr["val_freq"])),
-        save_on_train_epoch_end=True,
+        every_n_epochs=check_val_every_n_epoch,
     )
     callbacks = [ckpt_cb, LearningRateMonitor(logging_interval="step"), TrainingTQDMProgressBar()]
     if tr.get("swa", False):
@@ -511,8 +521,6 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
         precision=precision,
         accumulate_grad_batches=int(tr.get("gradient_accumulation_steps", 1)),
         gradient_clip_val=(float(tr["grad_clip_norm"]) if tr.get("grad_clip_norm") else None),
-        check_val_every_n_epoch=max(1, int(tr.get("val_freq", 1))),
-        val_check_interval=tr.get("val_check_interval"),
         enable_progress_bar=True,
         logger=logger,
         callbacks=callbacks,
@@ -520,6 +528,8 @@ def run_rl_training(config: dict, *, config_path: str, init_from: str) -> None:
         devices=tr["devices"],
         deterministic=bool(tr.get("deterministic", False)),
         log_every_n_steps=int(tr.get("log_every_n_steps", 50)),
+        check_val_every_n_epoch=check_val_every_n_epoch,
+        val_check_interval=val_check_interval,
         num_sanity_val_steps=0,
     )
 
