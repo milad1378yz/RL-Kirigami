@@ -37,9 +37,6 @@ training:
   accelerator: "gpu"
   devices: "auto"
   allow_tf32: true
-  channels_last: false
-  compile: false
-  compile_mode: "default"
 
   method: "euler"
   step_size: 0.125
@@ -55,8 +52,6 @@ training:
   deterministic: true
   log_every_n_steps: 50
   val_check_interval: null
-  num_sanity_val_steps: 0
-  ckpt_every_n_steps: 0
 
   num_workers: 4
   pin_memory: true
@@ -68,7 +63,6 @@ training:
   augment_mask_shift_frac_y: 0.125
 
   mask_threshold: 0.5
-  metric_workers: 1
 
 rl_training:
   data:
@@ -91,8 +85,6 @@ rl_training:
   reward_scale: 1.0
   reward_shift: 0.0
   reward_penalty_scale: 1.0
-  reward_workers: 1
-  val_metric_workers: 1
   shape_penalty:
     enabled: false
     build_fail: 5.0

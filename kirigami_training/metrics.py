@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import torch
@@ -18,7 +17,6 @@ def compute_shape_metrics_batch(
     shape_penalty_cfg: Optional[dict] = None,
     reward_cfg: Optional[dict] = None,
     reward_metric: str = "siou",
-    num_workers: int = 1,
     device: Optional[torch.device] = None,
 ) -> dict[str, Optional[torch.Tensor]]:
     if device is None:
@@ -79,13 +77,7 @@ def compute_shape_metrics_batch(
             "clipped_fraction": float(full_metrics["clipped_fraction"]),
         }
 
-    n_items = int(pred_np.shape[0])
-    workers = min(max(1, int(num_workers or 1)), max(1, n_items))
-    if workers > 1:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            results = list(executor.map(_metrics_for_index, range(n_items)))
-    else:
-        results = [_metrics_for_index(i) for i in range(n_items)]
+    results = [_metrics_for_index(i) for i in range(int(pred_np.shape[0]))]
 
     def _tensor(key: str) -> torch.Tensor:
         return torch.tensor([item[key] for item in results], device=device, dtype=torch.float32)
