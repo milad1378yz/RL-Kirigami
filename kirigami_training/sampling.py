@@ -98,9 +98,9 @@ def plot_solver_steps(
             x_min=x_min,
             x_max=x_max,
         )
-        overlay = mask_overlay_rgb(pred_mask, gt_mask)
         iou = mask_iou(pred_mask, gt_mask)
-        siou = mask_siou(pred_mask, gt_mask)
+        siou, aligned_gt_mask, _ = mask_siou(pred_mask, gt_mask, return_alignment=True)
+        overlay = mask_overlay_rgb(pred_mask, aligned_gt_mask.astype(np.float32))
 
         for col, step in enumerate(step_idx):
             ax = axes[i, col]
