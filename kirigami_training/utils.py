@@ -47,9 +47,11 @@ def select_training_config(config: dict, training_key: str) -> dict:
     resolved = copy.deepcopy(config)
     resolved.pop("fm_data", None)
     resolved.pop("rl_data", None)
+    resolved.pop("distill_data", None)
     resolved.pop("common_training", None)
     resolved.pop("fm_training", None)
     resolved.pop("rl_training", None)
+    resolved.pop("distill_training", None)
     resolved["data"] = {**base_data, **specific_data}
     resolved["training"] = {**common_training, **specific_training}
     return resolved

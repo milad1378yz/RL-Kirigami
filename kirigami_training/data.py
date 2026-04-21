@@ -12,10 +12,17 @@ from data_generator.generator import load_generator_config, resolve_generator_ou
 
 
 class KirigamiDataset(Dataset):
-    def __init__(self, images: torch.Tensor, masks: torch.Tensor, mask_transform=None):
+    def __init__(
+        self,
+        images: torch.Tensor,
+        masks: torch.Tensor,
+        mask_transform=None,
+        targets_z: Optional[torch.Tensor] = None,
+    ):
         self.images = images
         self.masks = masks
         self.mask_transform = mask_transform
+        self.targets_z = targets_z
 
     def __len__(self) -> int:
         return int(self.images.shape[0])
@@ -23,11 +30,14 @@ class KirigamiDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         mask = self.masks[idx]
         cond_mask = self.mask_transform(mask) if self.mask_transform is not None else mask
-        return {
+        item = {
             "images": self.images[idx],
             "masks": cond_mask,
             "metric_masks": mask,
         }
+        if self.targets_z is not None:
+            item["targets_z"] = self.targets_z[idx]
+        return item
 
 
 def log_space_bounds(x_min: float, x_max: float) -> tuple[float, float]:
@@ -371,3 +381,14 @@ class KirigamiDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return self.val_loader
+
+    def attach_train_targets(self, targets_z: torch.Tensor) -> None:
+        """Attach precomputed distillation targets to the training dataset."""
+        if self.train_loader is None:
+            raise RuntimeError("setup() must be called before attaching targets.")
+        n = int(self.train_loader.dataset.images.shape[0])
+        if int(targets_z.shape[0]) != n:
+            raise ValueError(
+                f"targets_z batch {int(targets_z.shape[0])} does not match train size {n}."
+            )
+        self.train_loader.dataset.targets_z = targets_z.detach().cpu()
