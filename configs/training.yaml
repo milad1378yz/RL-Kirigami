@@ -26,6 +26,9 @@ fm_data:
 rl_data:
   pickle_path: "test/kirigami_x_test_folder_dataset.pkl"
 
+distill_data:
+  pickle_path: "test/kirigami_x_test_folder_dataset.pkl"
+
 common_training:
   seed: 42
   mixed_precision: "bf16"
@@ -112,3 +115,33 @@ rl_training:
     fill_error: 2.0
     range_violation: 2.0
     clipped_fraction: 0.5
+
+distill_training:
+  batch_size: 16
+  val_batch_size: 32
+
+  lr: 5.0e-6
+  weight_decay: 0.0
+
+  steps: 800
+  eval_every: 25
+  target_repeat: 4
+  time_points_train: 9
+  num_eval_draws: 10
+
+  # No mask augmentation — targets are per-mask fixed.
+  augment_mask_p: 0.0
+  augment_mask_rotate_deg: 0.0
+  augment_mask_scale_min: 1.0
+  augment_mask_scale_max: 1.0
+  augment_mask_shift_frac_x: 0.0
+  augment_mask_shift_frac_y: 0.0
+
+  # Stage 1 — rejection sampling to seed ES.
+  n_candidates: 200
+
+  # Stage 2 — (1+lambda) evolution strategy in z=log10(x) space, SIoU fitness.
+  es_iters: 300
+  es_pop_size: 40
+  es_sigma_init: 0.15
+  es_sigma_min: 0.01
