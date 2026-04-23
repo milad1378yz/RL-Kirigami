@@ -27,6 +27,7 @@ Default outputs:
 - dataset pickle: `data_generator/kirigami_x_dataset.pkl`
 - preview image: `data_generator/preview.png`
 - GIFs: `data_generator/gifs/`
+- Prebuilt `5000/500/500` dataset: [Google Drive](https://drive.google.com/file/d/1axPzf4ZQqxoUYIf5aEJaMD0E0eLZGRXG/view?usp=sharing)
 
 ### 2. Train the flow-matching model
 
