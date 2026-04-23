@@ -2,6 +2,7 @@ __pycache__/
 *.gif
 *.png
 *.pdf
+!assets/*.png
 demo.py
 
 *.pkl
