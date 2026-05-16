@@ -28,7 +28,6 @@ dependencies = [
 rl-kirigami-generate = "data_generator.generator:main"
 rl-kirigami-train-fm = "fm_training:main"
 rl-kirigami-train-rl = "rl_training:main"
-rl-kirigami-evaluate = "kirigami_training.evaluation:main"
 
 [tool.setuptools]
 py-modules = [
