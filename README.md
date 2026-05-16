@@ -1,6 +1,6 @@
 # RL-Kirigami
 
-Inverse design for compact reconfigurable parallelogram quad kirigami. An OT-CFM generator proposes ratio fields conditioned on a target deployed silhouette; GRPO then aligns the generator to non-differentiable rewards (silhouette match, feasibility, ratio-field regularity). Decoded layouts can be exported as DXF for laser cutting.
+Code for [Reinforcement learning for inverse structural design and rapid laser cutting of kirigami prototypes](https://arxiv.org/abs/2605.08098). RL-Kirigami performs inverse design for compact reconfigurable parallelogram quad kirigami: an OT-CFM generator proposes ratio fields conditioned on a target deployed silhouette, and GRPO aligns the generator to non-differentiable rewards (silhouette match, feasibility, ratio-field regularity). Decoded layouts can be exported as DXF for laser cutting.
 
 <p align="center">
   <img src="assets/pipeline.png" width="88%">
@@ -60,3 +60,20 @@ python rl_training.py --config_path configs/training.yaml --init_from last --res
 | `configs/training.yaml` -> `rl_training` | GRPO-only overrides (group size, reward weights, temperature) |
 
 Keep the two YAML files consistent: `training.yaml` reads `grid_rows`, `grid_cols`, `x_min`, `x_max`, and the mask size from `data_generator.yaml`.
+
+## Cite us
+
+If you use this code, please cite:
+
+```bibtex
+@misc{yazdani2026rlkirigami,
+  title={Reinforcement learning for inverse structural design and rapid laser cutting of kirigami prototypes},
+  author={Yazdani, Milad and Shalileh, Shahriar and Shahriari, Dena},
+  year={2026},
+  eprint={2605.08098},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  doi={10.48550/arXiv.2605.08098},
+  url={https://arxiv.org/abs/2605.08098}
+}
+```
