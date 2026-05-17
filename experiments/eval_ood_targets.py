@@ -31,7 +31,6 @@ from data_generator.utils import (  # noqa: E402
     render_structure_mask_and_metrics,
 )
 from kirigami_training.data import model_to_x_space, prepare_training_config  # noqa: E402
-from kirigami_training.metrics import compute_shape_metrics_batch  # noqa: E402
 from kirigami_training.model import build_model  # noqa: E402
 from kirigami_training.sampling import sample_with_solver  # noqa: E402
 from kirigami_training.utils import load_config, select_training_config  # noqa: E402
@@ -45,6 +44,7 @@ BUCKET_COLORS = {
     "literal": "#9467bd",
 }
 
+
 def _centroid_area(mask_bool):
     ys, xs = np.nonzero(mask_bool)
     if xs.size == 0:
@@ -53,12 +53,14 @@ def _centroid_area(mask_bool):
 
 
 def best_alignment(pred_mask, gt_mask, *, refine: bool = True):
-    """Maximize IoU of the prediction over similarity transforms (rotation +
-    scale + translation) and return (best_sIoU, aligned_pred_in_target_frame).
+    """Best-coverage sIoU: align the prediction to the target over rotation and
+    translation at the *area-matched* scale, return (sIoU, aligned_pred).
 
-    sIoU is meant to be invariant to pose/size, so we search the full group:
-    a dense rotation x coarse-scale grid (global, avoids the single-scale
-    greedy trap), then a local rotation/scale/translation polish.
+    Scale is fixed to sqrt(area_gt / area_pred). At that scale the aligned
+    prediction and the target have equal area, so the overlay's symmetric
+    difference is balanced -- |generated-only| == |target-only| -- which is
+    what a good, pose/size-invariant match should look like. Rotation is
+    searched globally (dense grid) then polished together with translation.
     """
     P = np.asarray(pred_mask, dtype=np.float32) >= 0.5
     G = np.asarray(gt_mask, dtype=np.float32) >= 0.5
@@ -70,9 +72,9 @@ def best_alignment(pred_mask, gt_mask, *, refine: bool = True):
 
     gxx, gyy = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
     Gsum = float(ga)
-    base = math.sqrt(ga / pa)
+    scale = math.sqrt(ga / pa)  # area match -> balanced XOR
 
-    def warp(scale, angle, tx, ty):
+    def warp(angle, tx, ty):
         c, s = math.cos(angle), math.sin(angle)
         xr = gxx - (gcx + tx)
         yr = gyy - (gcy + ty)
@@ -91,27 +93,23 @@ def best_alignment(pred_mask, gt_mask, *, refine: bool = True):
             return 0.0
         return inter / (float(np.count_nonzero(m)) + Gsum - inter)
 
-    best = (-1.0, base, 0.0, 0.0, 0.0)
-    scales1 = base * np.array([0.8, 0.9, 1.0, 1.1, 1.25])
-    angles1 = np.linspace(0.0, 2.0 * math.pi, 180 if not refine else 360, endpoint=False)
-    for sc in scales1:
-        for an in angles1:
-            v = iou(warp(sc, an, 0.0, 0.0))
-            if v > best[0]:
-                best = (v, sc, an, 0.0, 0.0)
+    best = (-1.0, 0.0, 0.0, 0.0)
+    for an in np.linspace(0.0, 2.0 * math.pi, 240 if not refine else 720, endpoint=False):
+        v = iou(warp(an, 0.0, 0.0))
+        if v > best[0]:
+            best = (v, an, 0.0, 0.0)
 
     if refine:
-        _, sc0, an0, _, _ = best
-        for an in an0 + np.deg2rad(np.linspace(-2.5, 2.5, 9)):
-            for sc in sc0 * np.linspace(0.85, 1.18, 9):
-                for tx in np.linspace(-6.0, 6.0, 3):
-                    for ty in np.linspace(-6.0, 6.0, 3):
-                        v = iou(warp(sc, an, tx, ty))
-                        if v > best[0]:
-                            best = (v, sc, an, tx, ty)
+        _, an0, _, _ = best
+        for an in an0 + np.deg2rad(np.linspace(-2.0, 2.0, 9)):
+            for tx in np.linspace(-7.0, 7.0, 5):
+                for ty in np.linspace(-7.0, 7.0, 5):
+                    v = iou(warp(an, tx, ty))
+                    if v > best[0]:
+                        best = (v, an, tx, ty)
 
-    v, sc, an, tx, ty = best
-    return float(v), warp(sc, an, tx, ty)
+    v, an, tx, ty = best
+    return float(v), warp(an, tx, ty)
 
 
 def pretty_name(name: str) -> str:
@@ -224,7 +222,10 @@ def main() -> None:
     p.add_argument("--ckpt", default="checkpoints/training", help=".ckpt file or a checkpoint dir.")
     p.add_argument("--targets", default="outputs/ood/ood_targets.npz")
     p.add_argument("--out-dir", default="outputs/ood")
-    p.add_argument("--k", type=int, default=8, help="Samples per target (best-of-K).")
+    p.add_argument("--k", type=int, default=128, help="Samples per target (best-of-K).")
+    p.add_argument(
+        "--sample-chunk", type=int, default=32, help="Sub-batch size for sampling large K."
+    )
     p.add_argument("--success-threshold", type=float, default=0.5, help="sIoU success cutoff.")
     p.add_argument(
         "--limit", type=int, default=0, help="Evaluate only the first N targets (smoke test)."
@@ -293,37 +294,47 @@ def main() -> None:
     rows_out: list[dict] = []
     best_pred_x: dict[int, np.ndarray] = {}
     t_start = time.time()
+    h_i, w_i = masks_np.shape[1], masks_np.shape[2]
     for i in range(n):
-        gt = torch.from_numpy(masks_np[i])[None, None]  # [1,1,H,W]
-        masks_k = gt.repeat(args.k, 1, 1, 1).to(device)
-        x0 = source_std * torch.randn(args.k, 1, rows, cols, device=device)
-        pred_z = sample_with_solver(
-            model, x0, solver_config, masks=masks_k, return_intermediates=False
-        )
-        pred_x = model_to_x_space(pred_z, x_min=x_min, x_max=x_max)
-        m = compute_shape_metrics_batch(
-            pred_x, masks_k, context, x_min=x_min, x_max=x_max, device=device
-        )
+        gt_np = masks_np[i]
+        gt_bool = gt_np >= 0.5
 
-        # Max-coverage sIoU per candidate (coarse rank, then exact refine on
-        # the chosen best and the K=1 candidate for the reported numbers).
-        pred_x_np = pred_x[:, 0].detach().cpu().numpy()
-        h_i, w_i = masks_np[i].shape
-        pred_masks = [
-            render_structure_mask_and_metrics(
-                rows, cols, pred_x_np[k], context, h_i, w_i, x_min=x_min, x_max=x_max
-            )[0]
-            for k in range(args.k)
-        ]
+        # Sample K candidates in chunks (K can be large, e.g. best-of-128).
+        pred_masks, pred_metrics, pred_x_all = [], [], []
+        remaining = args.k
+        while remaining > 0:
+            cb = min(args.sample_chunk, remaining)
+            remaining -= cb
+            masks_cb = torch.from_numpy(gt_np)[None, None].repeat(cb, 1, 1, 1).to(device)
+            x0 = source_std * torch.randn(cb, 1, rows, cols, device=device)
+            pred_z = sample_with_solver(
+                model, x0, solver_config, masks=masks_cb, return_intermediates=False
+            )
+            pred_x = model_to_x_space(pred_z, x_min=x_min, x_max=x_max)[:, 0].cpu().numpy()
+            for k in range(cb):
+                pmask, pmet, _, _ = render_structure_mask_and_metrics(
+                    rows, cols, pred_x[k], context, h_i, w_i, x_min=x_min, x_max=x_max
+                )
+                pred_masks.append(pmask)
+                pred_metrics.append(pmet)
+                pred_x_all.append(pred_x[k])
+
+        # Area-balanced max-coverage sIoU: coarse rank, exact refine on the
+        # chosen best and on the K=1 candidate for the reported numbers.
         rank = np.array(
-            [best_alignment(pm, masks_np[i], refine=False)[0] for pm in pred_masks],
+            [best_alignment(pm, gt_np, refine=False)[0] for pm in pred_masks],
             dtype=np.float32,
         )
         best = int(np.argmax(rank))
         siou = rank.copy()
-        siou[best] = best_alignment(pred_masks[best], masks_np[i], refine=True)[0]
-        siou[0] = best_alignment(pred_masks[0], masks_np[i], refine=True)[0]
-        best_pred_x[i] = pred_x[best, 0].cpu().numpy()
+        siou[best] = best_alignment(pred_masks[best], gt_np, refine=True)[0]
+        siou[0] = best_alignment(pred_masks[0], gt_np, refine=True)[0]
+        best_pred_x[i] = pred_x_all[best]
+
+        mb = pred_metrics[best]
+        pb = pred_masks[best] >= 0.5
+        inter = float(np.count_nonzero(pb & gt_bool))
+        union = float(np.count_nonzero(pb | gt_bool))
         row = {
             "name": names[i],
             "bucket": buckets[i],
@@ -333,12 +344,12 @@ def main() -> None:
             "siou_k1": round(float(siou[0]), 4),
             "siou_bestk": round(float(siou[best]), 4),
             "siou_mean": round(float(siou.mean()), 4),
-            "iou_bestk": round(float(m["iou"].cpu().numpy()[best]), 4),
-            "build_ok": bool(m["build_ok"].cpu().numpy()[best] > 0.5),
-            "invalid_quad_count": int(m["invalid_quad_count"].cpu().numpy()[best]),
-            "overlap_ratio": round(float(m["overlap_ratio"].cpu().numpy()[best]), 4),
-            "fill_error": round(float(m["fill_error"].cpu().numpy()[best]), 4),
-            "clipped_fraction": round(float(m["clipped_fraction"].cpu().numpy()[best]), 4),
+            "iou_bestk": round(inter / union if union else 0.0, 4),
+            "build_ok": bool(mb.get("ok", False)),
+            "invalid_quad_count": int(mb.get("invalid_quad_count", 0) or 0),
+            "overlap_ratio": round(float(mb.get("overlap_ratio", 1.0) or 0.0), 4),
+            "fill_error": round(abs(float(mb.get("fill_ratio", 0.0)) - float(gt_np.mean())), 4),
+            "clipped_fraction": round(float(mb.get("clipped_fraction", 0.0) or 0.0), 4),
         }
         row["failure_category"] = failure_category(row, args.success_threshold)
         row["success"] = (
@@ -450,14 +461,24 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
 
     plt.rcParams.update(
         {
-            "font.size": 12,
-            "font.weight": "bold",
-            "axes.labelsize": 14,
+            "font.family": "serif",
+            "font.serif": [
+                "Latin Modern Roman",
+                "Liberation Serif",
+                "Nimbus Roman",
+                "DejaVu Serif",
+            ],
+            "mathtext.fontset": "cm",
+            "font.size": 13,
+            "font.weight": "normal",
+            "axes.labelsize": 15,
             "axes.labelweight": "bold",
+            "axes.titlesize": 14,
+            "axes.titleweight": "bold",
             "axes.linewidth": 1.1,
-            "legend.fontsize": 11,
-            "xtick.labelsize": 11,
-            "ytick.labelsize": 11,
+            "legend.fontsize": 12,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
         }
     )
     colors = BUCKET_COLORS
@@ -494,7 +515,9 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     for slot in range(len(order), prows * pcols):
         fig.add_subplot(gsa[slot // pcols, slot % pcols]).axis("off")
     bucket_handles = [
-        Line2D([0], [0], marker="s", ls="", mec="k", mfc=colors[b], ms=11, label=b.replace("_", " "))
+        Line2D(
+            [0], [0], marker="s", ls="", mec="k", mfc=colors[b], ms=11, label=b.replace("_", " ")
+        )
         for b in BUCKET_ORDER
         if any(r["bucket"] == b for r in rows_out)
     ]
@@ -504,18 +527,28 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     if len(picks) < 3:  # smoke-test fallback
         ranked = sorted(range(len(rows_out)), key=lambda i: rows_out[i]["siou_bestk"])
         picks = [
-            (rows_out[ranked[int(q * (len(ranked) - 1))]]["name"], ranked[int(q * (len(ranked) - 1))])
+            (
+                rows_out[ranked[int(q * (len(ranked) - 1))]]["name"],
+                ranked[int(q * (len(ranked) - 1))],
+            )
             for q in (0.9, 0.55, 0.2)
         ]
     headers = ["target", "structure", "generated", "overlay"]
-    b_left = 0.515
+    b_left = 0.365  # labels removed -> move cases block left, close to (a)
     gsb = fig.add_gridspec(
-        len(picks), 4, left=b_left, right=0.99, top=top_top, bottom=top_bot, wspace=0.04, hspace=0.10
+        len(picks),
+        4,
+        left=b_left,
+        right=0.99,
+        top=top_top,
+        bottom=top_bot,
+        wspace=0.04,
+        hspace=0.10,
     )
     for r_idx, (_, i) in enumerate(picks):
         gt_mask = masks_np[i]
         pred_x = best_pred_x[i]
-        pred_mask, overlay, siou = _overlay_target_frame(
+        pred_mask, overlay, _ = _overlay_target_frame(
             pred_x, gt_mask, context, rows, cols, x_min, x_max
         )
         cells = []
@@ -535,16 +568,6 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             cells[1].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
         cells[2].imshow(pred_mask, cmap="gray_r", vmin=0.0, vmax=1.0)
         cells[3].imshow(overlay)
-        box = cells[0].get_position(fig)
-        fig.text(
-            box.x0 - 0.010,
-            0.5 * (box.y0 + box.y1),
-            f"{pretty_name(rows_out[i]['name'])}\nsIoU = {siou:.2f}",
-            fontsize=12,
-            fontweight="bold",
-            ha="right",
-            va="center",
-        )
         if r_idx == 0:
             for c in range(4):
                 cells[c].set_title(headers[c], fontsize=13, fontweight="bold")
@@ -618,10 +641,10 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     axc.grid(alpha=0.3)
 
     fig.text(0.010, 0.962, "(a)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(b_left - 0.085, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
+    fig.text(b_left - 0.030, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
     fig.text(0.010, sc_top + 0.012, "(c)", fontsize=18, fontweight="bold", ha="left", va="bottom")
 
-    out = os.path.join(out_dir, "ood_overview.png")
+    out = os.path.join(out_dir, "ood_overview.pdf")
     fig.savefig(out, dpi=200)
     plt.close(fig)
     return out

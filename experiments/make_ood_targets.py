@@ -8,12 +8,14 @@ into four buckets and parametrised along a continuous difficulty axis:
 
   - convex            : ellipses, regular polygons, rounded rects, superellipses
                         (expected to succeed -- the easy controls).
-  - concave           : stars, crescents, dumbbells, plus/L/T, astroid, swept by
-                        a concavity parameter (the graceful-degradation core).
+  - concave           : stars, crescents, plus/L/T, astroid (the graceful-
+                        degradation core) plus mild smooth concave shapes
+                        (heart, peanut, thick plus, rounded star, trilobe)
+                        the decoder can match well.
   - topological_limit : rings/annuli and spirals -- the compact parallelogram
                         quad decoder cannot represent interior holes, so these
                         are documented, explainable failures.
-  - literal           : the exact shapes the reviewers named -- letters C/U/S/A,
+  - literal           : the exact shapes the reviewers named -- letters C/S,
                         a ring (O) and a free-form "hand-drawn" doodle. Kept
                         small and tagged so the reply can point to them directly.
 
@@ -198,7 +200,8 @@ def _convex_shapes() -> list[Shape]:
 
 def _concave_shapes() -> list[Shape]:
     out: list[Shape] = []
-    for inner in (0.65, 0.50, 0.38, 0.28, 0.18):
+    # Stars: dropped the densest 5-point (0.18) and the thin 6-point (0.30).
+    for inner in (0.65, 0.50, 0.38, 0.28):
         out.append(
             Shape(
                 f"concave/star5_in{inner:.2f}",
@@ -208,7 +211,7 @@ def _concave_shapes() -> list[Shape]:
                 [Primitive("poly", "add", _star(5, inner))],
             )
         )
-    for inner in (0.60, 0.45, 0.30):
+    for inner in (0.60, 0.45):
         out.append(
             Shape(
                 f"concave/star6_in{inner:.2f}",
@@ -231,21 +234,8 @@ def _concave_shapes() -> list[Shape]:
                 ],
             )
         )
-    for waist in (0.45, 0.30, 0.18, 0.10):
-        out.append(
-            Shape(
-                f"concave/dumbbell_w{waist:.2f}",
-                "concave",
-                "dumbbell",
-                {"waist": waist},
-                [
-                    Primitive("poly", "add", _circle(-0.62, 0.0, 0.45)),
-                    Primitive("poly", "add", _circle(0.62, 0.0, 0.45)),
-                    Primitive("poly", "add", _rect(0.0, 0.0, 1.3, waist)),
-                ],
-            )
-        )
-    for arm in (0.55, 0.40, 0.28):
+    # Plus: dropped the thin arm (0.28).
+    for arm in (0.55, 0.40):
         out.append(
             Shape(
                 f"concave/plus_arm{arm:.2f}",
@@ -293,6 +283,61 @@ def _concave_shapes() -> list[Shape]:
             {"exponent": 0.6},
             [Primitive("poly", "add", _superellipse(0.6))],
         )
+    )
+
+    # --- Mild, smooth concave shapes the parallelogram-quad decoder can match
+    # well (broaden the "concave that works" part of the story). ---
+    th = np.linspace(0.0, 2.0 * math.pi, 400, endpoint=False)
+    heart = np.stack(
+        [
+            16.0 * np.sin(th) ** 3,
+            13.0 * np.cos(th) - 5.0 * np.cos(2 * th) - 2.0 * np.cos(3 * th) - np.cos(4 * th),
+        ],
+        axis=1,
+    )
+    out.append(
+        Shape("concave/heart", "concave", "heart", {}, [Primitive("poly", "add", heart)])
+    )
+    out.append(
+        Shape(
+            "concave/peanut",
+            "concave",
+            "peanut",
+            {},
+            [
+                Primitive("poly", "add", _circle(-0.45, 0.0, 0.62)),
+                Primitive("poly", "add", _circle(0.45, 0.0, 0.62)),
+            ],
+        )
+    )
+    for arm in (0.95, 0.78):
+        out.append(
+            Shape(
+                f"concave/thick_plus_arm{arm:.2f}",
+                "concave",
+                "plus",
+                {"arm_width": arm},
+                [
+                    Primitive("poly", "add", _rect(0.0, 0.0, 2.0, arm)),
+                    Primitive("poly", "add", _rect(0.0, 0.0, arm, 2.0)),
+                ],
+            )
+        )
+    out.append(
+        Shape(
+            "concave/rounded_star5_in0.78",
+            "concave",
+            "star",
+            {"n_points": 5, "inner_ratio": 0.78},
+            [Primitive("poly", "add", _star(5, 0.78))],
+        )
+    )
+    trilobe = np.stack(
+        [(1.0 + 0.16 * np.sin(3 * th)) * np.cos(th), (1.0 + 0.16 * np.sin(3 * th)) * np.sin(th)],
+        axis=1,
+    )
+    out.append(
+        Shape("concave/trilobe", "concave", "trilobe", {}, [Primitive("poly", "add", trilobe)])
     )
     return out
 
@@ -375,9 +420,7 @@ def _doodle(rng: np.random.Generator) -> list[Primitive]:
 def _literal_shapes(rng: np.random.Generator) -> list[Shape]:
     return [
         Shape("literal/letter_C", "literal", "letter", {"glyph": "C"}, _letter_C()),
-        Shape("literal/letter_U", "literal", "letter", {"glyph": "U"}, _letter_U()),
         Shape("literal/letter_S", "literal", "letter", {"glyph": "S"}, _letter_S()),
-        Shape("literal/letter_A", "literal", "letter", {"glyph": "A"}, _letter_A()),
         Shape(
             "literal/ring_O",
             "literal",
