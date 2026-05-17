@@ -22,4 +22,5 @@ checkpoints*/
 
 logs/
 
-results
+results/
+outputs/
