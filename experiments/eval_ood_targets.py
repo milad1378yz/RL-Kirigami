@@ -35,14 +35,15 @@ from kirigami_training.model import build_model  # noqa: E402
 from kirigami_training.sampling import sample_with_solver  # noqa: E402
 from kirigami_training.utils import load_config, select_training_config  # noqa: E402
 from data_generator.visualization import plot_x_matrix_structure  # noqa: E402
-from experiments.make_ood_targets import SOLIDITY_CONVEX_TAU  # noqa: E402
 
 BUCKET_ORDER = ["convex", "concave", "with_hole", "literal"]
+# Deliberately avoid the overlay RGB (green=match, red=generated-only,
+# blue=target-only) so category color never reads as an overlay channel.
 BUCKET_COLORS = {
-    "convex": "#2ca02c",
-    "concave": "#1f77b4",
-    "with_hole": "#d62728",
-    "literal": "#9467bd",
+    "convex": "#ff7f0e",  # orange
+    "concave": "#9467bd",  # purple
+    "with_hole": "#8c564b",  # brown
+    "literal": "#e377c2",  # pink
 }
 
 
@@ -441,13 +442,15 @@ def main() -> None:
         print("\n" + fh.read())
 
 
-# Representative (deliberately not pathological) cases spanning the story.
+# Representative (deliberately not pathological) cases spanning the story,
+# ordered high -> low solidity with the hole case last.
 CURATED_PANEL = [
     ("convex/superellipse_e4.0", "convex - works"),
     ("concave/L_notch0.40", "concave - works"),
-    ("concave/plus_arm0.55", "concave - partial"),
     ("literal/doodle", "hand-drawn - works"),
-    ("topological_limit/annulus_in0.50", "hole - decoder limit"),
+    ("concave/thick_plus_arm0.78", "concave - works (~0.8 solidity)"),
+    ("concave/plus_arm0.55", "concave - partial"),
+    ("literal/ring_O", "hole - decoder limit"),
 ]
 
 # A few scatter points to call out with a small (target | overlay) image.
@@ -457,7 +460,7 @@ CURATED_CALLOUTS = {
     "concave/L_notch0.40": (34.0, -78.0),
     "concave/plus_arm0.40": (-66.0, 26.0),
     "literal/letter_S": (-64.0, -40.0),
-    "topological_limit/annulus_in0.70": (60.0, -34.0),
+    "topological_limit/annulus_in0.30": (-58.0, 50.0),
 }
 
 
@@ -532,7 +535,7 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     pcols = 5
     prows = int(np.ceil(len(order) / pcols))
     gsa = fig.add_gridspec(
-        prows, pcols, left=0.045, right=0.315, top=top_top, bottom=top_bot, wspace=0.06, hspace=0.06
+        prows, pcols, left=0.045, right=0.40, top=top_top, bottom=top_bot, wspace=0.06, hspace=0.06
     )
     for slot, idx in enumerate(order):
         axc = fig.add_subplot(gsa[slot // pcols, slot % pcols])
@@ -563,11 +566,15 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             )
             for q in (0.9, 0.55, 0.2)
         ]
-    headers = ["target", "structure", "generated", "overlay"]
-    b_left = 0.365  # labels removed -> move cases block left, close to (a)
+    # Paper terms / paper rendering (cf. RL-Kirigami-Latex table figure): target
+    # silhouette y, the compact rectangle (phi=pi cut sheet) decoded from x, and
+    # the generated deployed structure with the *aligned target* overlaid
+    # (matches _siou_and_aligned_target_mask in generate_table2_visual_comparison).
+    headers = ["Target", "Compact rectangle", "Generated"]
+    b_left = 0.47  # narrower (b), wider (a)
     gsb = fig.add_gridspec(
         len(picks),
-        4,
+        3,
         left=b_left,
         right=0.99,
         top=top_top,
@@ -578,52 +585,43 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     for r_idx, (_, i) in enumerate(picks):
         gt_mask = masks_np[i]
         pred_x = best_pred_x[i]
-        pred_mask, overlay, _ = _overlay_target_frame(
-            pred_x, gt_mask, context, rows, cols, x_min, x_max
+        pred_mask, _, _, _ = render_structure_mask_and_metrics(
+            rows, cols, pred_x, context, gt_mask.shape[0], gt_mask.shape[1],
+            x_min=x_min, x_max=x_max,
         )
         cells = []
-        for c in range(4):
+        for c in range(3):
             axc = fig.add_subplot(gsb[r_idx, c])
             cells.append(axc)
             axc.set_xticks([])
             axc.set_yticks([])
         cells[0].imshow(gt_mask, cmap="gray_r", vmin=0.0, vmax=1.0)
-        try:
+        try:  # compact rectangle = phi=pi pose of the decoded cut sheet
             plot_x_matrix_structure(
-                cells[1], pred_x, context, x_min=x_min, x_max=x_max, normalize_phi=None
+                cells[1], pred_x, context, phi=np.pi,
+                x_min=x_min, x_max=x_max, normalize_phi=np.pi,
             )
-            cells[1].set_xticks([])
-            cells[1].set_yticks([])
         except Exception:
             cells[1].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
-        cells[2].imshow(pred_mask, cmap="gray_r", vmin=0.0, vmax=1.0)
-        cells[3].imshow(overlay)
+        try:  # generated deployed structure + target silhouette aligned onto it
+            _, aligned_target = best_alignment(gt_mask, pred_mask, refine=True)
+            plot_x_matrix_structure(
+                cells[2], pred_x, context, mask_2d=aligned_target.astype(np.float32),
+                x_min=x_min, x_max=x_max, normalize_phi=None,
+            )
+        except Exception:
+            cells[2].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
+        for c in range(3):  # structure plotters clear ticks; re-assert for all
+            cells[c].set_xticks([])
+            cells[c].set_yticks([])
         if r_idx == 0:
-            for c in range(4):
+            for c in range(3):
                 cells[c].set_title(headers[c], fontsize=13, fontweight="bold")
-    fig.legend(
-        handles=overlay_key,
-        loc="center",
-        bbox_to_anchor=(0.5 * (b_left + 0.99), top_bot - 0.028),
-        ncol=3,
-        fontsize=12,
-        frameon=False,
-        handlelength=1.3,
-        columnspacing=1.6,
-    )
 
     # ---- (c) sIoU vs. solidity (full width) -----------------------------------
     gsc = fig.add_gridspec(1, 1, left=0.065, right=0.99, top=sc_top, bottom=sc_bot)
     axc = fig.add_subplot(gsc[0])
     sols = [r["solidity"] for r in rows_out]
-    # Make the (now principled) taxonomy visible: shade the convex zone and
-    # mark the data-grounded solidity cut that separates convex from concave.
-    axc.axvspan(
-        SOLIDITY_CONVEX_TAU, 1.06, color=colors["convex"], alpha=0.07, zorder=0, lw=0
-    )
-    axc.axvline(
-        SOLIDITY_CONVEX_TAU, color=colors["convex"], ls="--", lw=1.1, alpha=0.55, zorder=1
-    )
     for b in BUCKET_ORDER:
         grp = [r for r in rows_out if r["bucket"] == b]
         if not grp:
@@ -632,10 +630,10 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             [r["solidity"] for r in grp],
             [r["siou_bestk"] for r in grp],
             c=colors[b],
-            s=[95 if r["target_hole_count"] else 58 for r in grp],
+            s=64,
             marker="o",
             edgecolors="k",
-            linewidths=[1.4 if r["target_hole_count"] else 0.5 for r in grp],
+            linewidths=0.6,
             zorder=3,
         )
     for nm, (dx, dy) in CURATED_CALLOUTS.items():
@@ -662,11 +660,9 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
                 zorder=5,
             )
         )
-    hole_handle = Line2D(
-        [0], [0], marker="o", ls="", mec="k", mfc="0.7", mew=1.5, ms=12, label="has hole"
-    )
+    # "with_hole" is its own bucket -> no separate "has hole" entry (duplication).
     axc.legend(
-        handles=bucket_handles + [hole_handle],
+        handles=bucket_handles,
         loc="lower right",
         fontsize=11,
         framealpha=0.95,
@@ -681,17 +677,16 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     fig.text(0.010, 0.962, "(a)", fontsize=18, fontweight="bold", ha="left", va="bottom")
     fig.text(b_left - 0.030, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
     fig.text(0.010, sc_top + 0.012, "(c)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(
-        0.5 * (0.065 + 0.99),
-        0.018,
-        "Bucket is derived from the target mask: with_hole if it has an interior hole; "
-        f"else convex if solidity >= {SOLIDITY_CONVEX_TAU:g}, else concave. "
-        "literal = the shapes the reviewers named (a provenance set).",
-        ha="center",
-        va="bottom",
-        fontsize=9.5,
-        style="italic",
-        color="0.25",
+    # Key for the (c) callout overlays (target|overlay thumbnails).
+    fig.legend(
+        handles=overlay_key,
+        loc="center",
+        bbox_to_anchor=(0.5 * (0.065 + 0.99), 0.020),
+        ncol=3,
+        fontsize=11,
+        frameon=False,
+        handlelength=1.3,
+        columnspacing=1.6,
     )
 
     out = os.path.join(out_dir, "ood_overview.pdf")
