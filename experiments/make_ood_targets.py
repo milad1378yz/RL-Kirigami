@@ -3,20 +3,32 @@
 The paper's test masks come from the same feasible-ratio-field generator as the
 training set, so they do not establish performance on arbitrary user-specified
 silhouettes (Reviewer 1.1 / 2.3). This script produces target masks from a
-generative process *unrelated* to the kirigami ratio-field generator, organised
-into four buckets and parametrised along a continuous difficulty axis:
+generative process *unrelated* to the kirigami ratio-field generator.
 
-  - convex            : ellipses, regular polygons, rounded rects, superellipses
-                        (expected to succeed -- the easy controls).
-  - concave           : stars, crescents, plus/L/T, astroid (the graceful-
-                        degradation core) plus mild smooth concave shapes
-                        (peanut, thick plus) the decoder can match well.
-  - topological_limit : rings/annuli and spirals (thin and thick) -- the
-                        compact parallelogram quad decoder cannot represent
-                        interior holes, so these are documented failures.
-  - literal           : the exact shapes the reviewers named -- letters C/S,
-                        a ring (O) and a free-form "hand-drawn" doodle. Kept
-                        small and tagged so the reply can point to them directly.
+Bucket assignment is not hand-typed. Each shape carries an ``intent`` tag (the
+generator family that produced it -- also its name prefix), but the reported
+``bucket`` is *derived from the measured mask* so the taxonomy is reproducible
+and defensible. The rule, applied in order:
+
+  reviewer_named           -> literal     provenance: the exact shapes the
+                                          reviewers named (letters C/S, ring O,
+                                          a free-form doodle). Kept as a labelled
+                                          set so the reply can cite them; this is
+                                          a provenance class, not a geometric one.
+  hole_count > 0           -> with_hole   the compact parallelogram-quad decoder
+                                          provably cannot open an interior hole,
+                                          so any holed target is a structural
+                                          limit (annuli, ring O).
+  solidity >= 0.98         -> convex      near-unit solidity: the easy controls.
+  otherwise                -> concave     difficulty scales with 1 - solidity
+                                          (stars, crescents, plus/L/T, astroid,
+                                          and the spirals -- which have no hole
+                                          and fail from low solidity, not
+                                          topology).
+
+The 0.98 cut is grounded in the set itself: every authored convex shape has
+solidity == 1.0, and the densest non-holed concave (the peanut) is 0.962, so
+the threshold separates them with margin and is not tuned to results.
 
 Each target stores a ``solidity`` scalar (mask area / convex-hull area; 1.0 for
 convex, -> 0 as concavity/holes grow). Plotting sIoU vs. solidity, coloured by
@@ -33,7 +45,9 @@ Outputs (default ``outputs/ood/``):
   - ``ood_targets.npz``        : masks + per-target metadata (load with
                                  ``np.load(path, allow_pickle=True)``;
                                  ``masks`` is float32 [N, H, W]).
-  - ``ood_targets_index.csv``  : human-readable catalogue.
+  - ``ood_targets_index.csv``  : human-readable catalogue (records both the
+                                 ``intent`` provenance and the derived
+                                 ``bucket`` so the reclassification is auditable).
   - ``ood_preview.png``        : grid preview, grouped by bucket and difficulty.
 
 Run from the repo root:
@@ -60,13 +74,18 @@ import yaml  # noqa: E402
 
 from data_generator.utils import mask_hole_metrics  # noqa: E402
 
-BUCKET_ORDER = ["convex", "concave", "topological_limit", "literal"]
+BUCKET_ORDER = ["convex", "concave", "with_hole", "literal"]
 BUCKET_COLORS = {
     "convex": "#2ca02c",
     "concave": "#1f77b4",
-    "topological_limit": "#d62728",
+    "with_hole": "#d62728",
     "literal": "#9467bd",
 }
+
+# Convex/concave split on measured solidity. Data-grounded, not tuned: every
+# authored convex shape has solidity == 1.0; the densest non-holed concave
+# (the peanut) is 0.962, so 0.98 separates the two with margin.
+SOLIDITY_CONVEX_TAU = 0.98
 
 
 # --------------------------------------------------------------------------- #
@@ -86,10 +105,11 @@ class Primitive:
 @dataclass
 class Shape:
     name: str
-    bucket: str
+    intent: str  # generator family group / name prefix; only "literal" is binding
     family: str
     params: dict
     prims: list[Primitive] = field(default_factory=list)
+    bucket: str = ""  # canonical, geometry-derived; filled by classify_bucket()
 
 
 def _circle(cx: float, cy: float, r: float, n: int = 256) -> np.ndarray:
@@ -313,7 +333,10 @@ def _concave_shapes() -> list[Shape]:
     return out
 
 
-def _topological_limit_shapes() -> list[Shape]:
+def _hole_and_spiral_shapes() -> list[Shape]:
+    """Annuli (a true interior hole -> structural limit) and spirals (no hole;
+    they land in ``concave`` via low solidity). ``intent`` stays
+    ``topological_limit`` only as a provenance/name-prefix tag."""
     out: list[Shape] = []
     for inner in (0.30, 0.50, 0.70):
         out.append(
@@ -417,7 +440,7 @@ def _literal_shapes(rng: np.random.Generator) -> list[Shape]:
 def build_catalogue(seed: int) -> list[Shape]:
     rng = np.random.default_rng(seed)
     shapes = (
-        _convex_shapes() + _concave_shapes() + _topological_limit_shapes() + _literal_shapes(rng)
+        _convex_shapes() + _concave_shapes() + _hole_and_spiral_shapes() + _literal_shapes(rng)
     )
     return shapes
 
@@ -515,6 +538,27 @@ def compute_solidity(mask: np.ndarray) -> float:
     return max(0.0, min(1.0, area / hull_area))
 
 
+def classify_bucket(solidity: float, hole_count: int, *, reviewer_named: bool) -> str:
+    """Canonical OOD bucket, derived from the measured mask (not hand-typed).
+
+    Applied in order (see the module docstring for the rationale):
+
+      reviewer_named           -> "literal"     provenance class: the exact
+                                                shapes the reviewers named.
+      hole_count > 0           -> "with_hole"   the parallelogram-quad decoder
+                                                cannot open an interior hole.
+      solidity >= TAU          -> "convex"      near-unit solidity.
+      otherwise                -> "concave"     difficulty ~ 1 - solidity.
+    """
+    if reviewer_named:
+        return "literal"
+    if hole_count > 0:
+        return "with_hole"
+    if solidity >= SOLIDITY_CONVEX_TAU:
+        return "convex"
+    return "concave"
+
+
 # --------------------------------------------------------------------------- #
 # Driver.
 # --------------------------------------------------------------------------- #
@@ -594,8 +638,6 @@ def main() -> None:
     w = args.img_w or cfg_w
 
     shapes = build_catalogue(args.seed)
-    if args.only_buckets:
-        shapes = [s for s in shapes if s.bucket in set(args.only_buckets)]
 
     masks: list[np.ndarray] = []
     rows_csv: list[dict] = []
@@ -606,19 +648,35 @@ def main() -> None:
             raise RuntimeError(f"Shape '{s.name}' rasterised empty -- check its definition.")
         sol = compute_solidity(mask)
         holes = mask_hole_metrics(mask)
+        hole_count = int(holes["hole_count"])
+        s.bucket = classify_bucket(
+            sol, hole_count, reviewer_named=(s.intent == "literal")
+        )
         masks.append(mask)
         rows_csv.append(
             {
                 "name": s.name,
                 "bucket": s.bucket,
+                "intent": s.intent,
                 "family": s.family,
                 "solidity": round(sol, 4),
                 "nonconvexity": round(1.0 - sol, 4),
                 "fill_ratio": round(fill, 4),
-                "hole_count": int(holes["hole_count"]),
+                "hole_count": hole_count,
                 "params": json.dumps(s.params, sort_keys=True),
             }
         )
+
+    # Bucket is derived from the mask, so --only-buckets filters after
+    # classification (not on the provenance intent) to stay consistent.
+    if args.only_buckets:
+        keep = set(args.only_buckets)
+        sel = [i for i, r in enumerate(rows_csv) if r["bucket"] in keep]
+        if not sel:
+            raise SystemExit(f"No shapes classified into buckets {sorted(keep)}.")
+        shapes = [shapes[i] for i in sel]
+        masks = [masks[i] for i in sel]
+        rows_csv = [rows_csv[i] for i in sel]
 
     os.makedirs(args.out_dir, exist_ok=True)
     mask_arr = np.stack(masks, axis=0).astype(np.float32)
@@ -628,6 +686,7 @@ def main() -> None:
         masks=mask_arr,
         names=np.array([r["name"] for r in rows_csv], dtype=object),
         buckets=np.array([r["bucket"] for r in rows_csv], dtype=object),
+        intents=np.array([r["intent"] for r in rows_csv], dtype=object),
         families=np.array([r["family"] for r in rows_csv], dtype=object),
         solidity=np.array([r["solidity"] for r in rows_csv], dtype=np.float32),
         nonconvexity=np.array([r["nonconvexity"] for r in rows_csv], dtype=np.float32),
@@ -649,8 +708,23 @@ def main() -> None:
     by_bucket: dict[str, int] = {}
     for r in rows_csv:
         by_bucket[r["bucket"]] = by_bucket.get(r["bucket"], 0) + 1
+    reclassified = [r for r in rows_csv if r["bucket"] != r["intent"]]
     print(f"Wrote {mask_arr.shape[0]} OOD targets at {h}x{w} -> {npz_path}")
+    print(
+        "  rule: literal if reviewer-named; else with_hole if hole_count>0; "
+        f"else convex if solidity>={SOLIDITY_CONVEX_TAU}; else concave"
+    )
     print("  per bucket: " + ", ".join(f"{b}={by_bucket.get(b, 0)}" for b in BUCKET_ORDER))
+    if reclassified:
+        moves: dict[str, int] = {}
+        for r in reclassified:
+            moves[f"{r['intent']}->{r['bucket']}"] = (
+                moves.get(f"{r['intent']}->{r['bucket']}", 0) + 1
+            )
+        print(
+            f"  reclassified {len(reclassified)} by geometry: "
+            + ", ".join(f"{k} x{v}" for k, v in sorted(moves.items()))
+        )
     print(f"  index: {csv_path}")
     if not args.no_preview:
         print(f"  preview: {os.path.join(args.out_dir, 'ood_preview.png')}")
