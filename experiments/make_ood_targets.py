@@ -10,11 +10,10 @@ into four buckets and parametrised along a continuous difficulty axis:
                         (expected to succeed -- the easy controls).
   - concave           : stars, crescents, plus/L/T, astroid (the graceful-
                         degradation core) plus mild smooth concave shapes
-                        (heart, peanut, thick plus, rounded star, trilobe)
-                        the decoder can match well.
-  - topological_limit : rings/annuli and spirals -- the compact parallelogram
-                        quad decoder cannot represent interior holes, so these
-                        are documented, explainable failures.
+                        (peanut, thick plus) the decoder can match well.
+  - topological_limit : rings/annuli and spirals (thin and thick) -- the
+                        compact parallelogram quad decoder cannot represent
+                        interior holes, so these are documented failures.
   - literal           : the exact shapes the reviewers named -- letters C/S,
                         a ring (O) and a free-form "hand-drawn" doodle. Kept
                         small and tagged so the reply can point to them directly.
@@ -153,7 +152,7 @@ def _arc(cx: float, cy: float, r: float, a0: float, a1: float, n: int = 160) -> 
 # --------------------------------------------------------------------------- #
 def _convex_shapes() -> list[Shape]:
     out: list[Shape] = []
-    for ar in (1.0, 1.5, 2.0, 3.0):
+    for ar in (1.5, 2.0, 3.0):
         c = _circle(0.0, 0.0, 1.0)
         c = c * np.array([1.0, 1.0 / ar])
         out.append(
@@ -165,7 +164,7 @@ def _convex_shapes() -> list[Shape]:
                 [Primitive("poly", "add", c)],
             )
         )
-    for n in (3, 4, 5, 6, 8):
+    for n in (3, 8):
         out.append(
             Shape(
                 f"convex/regular_polygon_n{n}",
@@ -185,7 +184,7 @@ def _convex_shapes() -> list[Shape]:
                 [Primitive("poly", "add", _rounded_rect(0.0, 0.0, 2.0 * aspect, 2.0, rad))],
             )
         )
-    for exp in (2.0, 4.0, 8.0):
+    for exp in (4.0,):
         out.append(
             Shape(
                 f"convex/superellipse_e{exp:.1f}",
@@ -200,8 +199,8 @@ def _convex_shapes() -> list[Shape]:
 
 def _concave_shapes() -> list[Shape]:
     out: list[Shape] = []
-    # Stars: dropped the densest 5-point (0.18) and the thin 6-point (0.30).
-    for inner in (0.65, 0.50, 0.38, 0.28):
+    # Stars: dropped densest 5-pt (0.18), thin 6-pt (0.30), and 0.65/0.50.
+    for inner in (0.38, 0.28):
         out.append(
             Shape(
                 f"concave/star5_in{inner:.2f}",
@@ -287,17 +286,6 @@ def _concave_shapes() -> list[Shape]:
 
     # --- Mild, smooth concave shapes the parallelogram-quad decoder can match
     # well (broaden the "concave that works" part of the story). ---
-    th = np.linspace(0.0, 2.0 * math.pi, 400, endpoint=False)
-    heart = np.stack(
-        [
-            16.0 * np.sin(th) ** 3,
-            13.0 * np.cos(th) - 5.0 * np.cos(2 * th) - 2.0 * np.cos(3 * th) - np.cos(4 * th),
-        ],
-        axis=1,
-    )
-    out.append(
-        Shape("concave/heart", "concave", "heart", {}, [Primitive("poly", "add", heart)])
-    )
     out.append(
         Shape(
             "concave/peanut",
@@ -310,34 +298,17 @@ def _concave_shapes() -> list[Shape]:
             ],
         )
     )
-    for arm in (0.95, 0.78):
-        out.append(
-            Shape(
-                f"concave/thick_plus_arm{arm:.2f}",
-                "concave",
-                "plus",
-                {"arm_width": arm},
-                [
-                    Primitive("poly", "add", _rect(0.0, 0.0, 2.0, arm)),
-                    Primitive("poly", "add", _rect(0.0, 0.0, arm, 2.0)),
-                ],
-            )
-        )
     out.append(
         Shape(
-            "concave/rounded_star5_in0.78",
+            "concave/thick_plus_arm0.78",
             "concave",
-            "star",
-            {"n_points": 5, "inner_ratio": 0.78},
-            [Primitive("poly", "add", _star(5, 0.78))],
+            "plus",
+            {"arm_width": 0.78},
+            [
+                Primitive("poly", "add", _rect(0.0, 0.0, 2.0, 0.78)),
+                Primitive("poly", "add", _rect(0.0, 0.0, 0.78, 2.0)),
+            ],
         )
-    )
-    trilobe = np.stack(
-        [(1.0 + 0.16 * np.sin(3 * th)) * np.cos(th), (1.0 + 0.16 * np.sin(3 * th)) * np.sin(th)],
-        axis=1,
-    )
-    out.append(
-        Shape("concave/trilobe", "concave", "trilobe", {}, [Primitive("poly", "add", trilobe)])
     )
     return out
 
@@ -361,15 +332,16 @@ def _topological_limit_shapes() -> list[Shape]:
         t = np.linspace(0.0, turns * 2.0 * math.pi, 400)
         rr = 0.08 + 0.92 * (t / t.max())
         path = np.stack([rr * np.cos(t), rr * np.sin(t)], axis=1)
-        out.append(
-            Shape(
-                f"topological_limit/spiral_t{turns:.1f}",
-                "topological_limit",
-                "spiral",
-                {"turns": turns},
-                [Primitive("stroke", "add", path, r=0.10)],
+        for tag, sw in (("", 0.10), ("_thick", 0.22)):
+            out.append(
+                Shape(
+                    f"topological_limit/spiral_t{turns:.1f}{tag}",
+                    "topological_limit",
+                    "spiral",
+                    {"turns": turns, "stroke": sw},
+                    [Primitive("stroke", "add", path, r=sw)],
+                )
             )
-        )
     return out
 
 
@@ -387,12 +359,12 @@ def _letter_U() -> list[Primitive]:
     return [Primitive("stroke", "add", path, r=0.16)]
 
 
-def _letter_S() -> list[Primitive]:
+def _letter_S(r: float = 0.15) -> list[Primitive]:
     # Single smooth sigmoid spine: one open polyline -> recognisably "S" and
     # provably hole-free (a non-self-intersecting stroke encloses nothing).
     t = np.linspace(0.0, 1.0, 240)
     path = np.stack([0.42 * np.sin(2.0 * math.pi * t), 0.9 - 1.8 * t], axis=1)
-    return [Primitive("stroke", "add", path, r=0.15)]
+    return [Primitive("stroke", "add", path, r=r)]
 
 
 def _letter_A() -> list[Primitive]:
@@ -421,6 +393,13 @@ def _literal_shapes(rng: np.random.Generator) -> list[Shape]:
     return [
         Shape("literal/letter_C", "literal", "letter", {"glyph": "C"}, _letter_C()),
         Shape("literal/letter_S", "literal", "letter", {"glyph": "S"}, _letter_S()),
+        Shape(
+            "literal/letter_S_thick",
+            "literal",
+            "letter",
+            {"glyph": "S", "stroke": 0.27},
+            _letter_S(r=0.27),
+        ),
         Shape(
             "literal/ring_O",
             "literal",
