@@ -75,11 +75,12 @@ import yaml  # noqa: E402
 from data_generator.utils import mask_hole_metrics  # noqa: E402
 
 BUCKET_ORDER = ["convex", "concave", "with_hole", "literal"]
+# Kept distinct from the eval overlay RGB (green/red/blue); see eval_ood_targets.
 BUCKET_COLORS = {
-    "convex": "#2ca02c",
-    "concave": "#1f77b4",
-    "with_hole": "#d62728",
-    "literal": "#9467bd",
+    "convex": "#ff7f0e",  # orange
+    "concave": "#9467bd",  # purple
+    "with_hole": "#8c564b",  # brown
+    "literal": "#e377c2",  # pink
 }
 
 # Convex/concave split on measured solidity. Data-grounded, not tuned: every
