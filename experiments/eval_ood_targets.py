@@ -35,12 +35,13 @@ from kirigami_training.model import build_model  # noqa: E402
 from kirigami_training.sampling import sample_with_solver  # noqa: E402
 from kirigami_training.utils import load_config, select_training_config  # noqa: E402
 from data_generator.visualization import plot_x_matrix_structure  # noqa: E402
+from experiments.make_ood_targets import SOLIDITY_CONVEX_TAU  # noqa: E402
 
-BUCKET_ORDER = ["convex", "concave", "topological_limit", "literal"]
+BUCKET_ORDER = ["convex", "concave", "with_hole", "literal"]
 BUCKET_COLORS = {
     "convex": "#2ca02c",
     "concave": "#1f77b4",
-    "topological_limit": "#d62728",
+    "with_hole": "#d62728",
     "literal": "#9467bd",
 }
 
@@ -213,6 +214,43 @@ def failure_category(row: dict, success_threshold: float) -> str:
     return "ok"
 
 
+def _write_csvs(rows_out: list[dict], out_dir: str) -> tuple[str, str]:
+    """Write the per-target and per-bucket CSVs and return their paths.
+
+    The summary aggregates only mask/sampling-determined metrics (sIoU,
+    build_ok), so it is correct to regenerate from cached rows after a
+    re-bucketing -- the bucket label changes, the numbers do not.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    csv_path = os.path.join(out_dir, "ood_results.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
+        w.writeheader()
+        w.writerows(rows_out)
+
+    summary_path = os.path.join(out_dir, "ood_summary.csv")
+    with open(summary_path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(
+            ["bucket", "n", "siou_k1_mean", "siou_bestk_mean", "success_rate", "build_fail_rate"]
+        )
+        for b in BUCKET_ORDER + ["ALL"]:
+            grp = rows_out if b == "ALL" else [r for r in rows_out if r["bucket"] == b]
+            if not grp:
+                continue
+            w.writerow(
+                [
+                    b,
+                    len(grp),
+                    round(float(np.mean([r["siou_k1"] for r in grp])), 4),
+                    round(float(np.mean([r["siou_bestk"] for r in grp])), 4),
+                    round(float(np.mean([r["success"] for r in grp])), 4),
+                    round(float(np.mean([not r["build_ok"] for r in grp])), 4),
+                ]
+            )
+    return csv_path, summary_path
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description="Evaluate the generator on OOD targets.")
     p.add_argument("--config", default="configs/training.yaml")
@@ -262,18 +300,37 @@ def main() -> None:
         mask_by_name = dict(zip(list(blob["names"]), blob["masks"].astype(np.float32)))
         with open(os.path.join(args.out_dir, "ood_results.csv"), encoding="utf-8") as fh:
             rows_out = list(csv.DictReader(fh))
-        for r in rows_out:  # csv reads everything as str; restore the types figures use
-            r["solidity"] = float(r["solidity"])
+        # bucket / solidity / hole_count are properties of the target set, not
+        # of an eval run -- take them from the npz so a re-bucketed target file
+        # is reflected without re-sampling (the sIoU numbers are mask-determined
+        # and unchanged). Only the per-run sIoU columns come from the CSV.
+        idx_by_name = {n: j for j, n in enumerate(list(blob["names"]))}
+        bk, so, hc = blob["buckets"], blob["solidity"], blob["hole_count"]
+        for r in rows_out:  # csv reads everything as str; restore the types used below
+            j = idx_by_name[r["name"]]
+            r["bucket"] = str(bk[j])
+            r["solidity"] = round(float(so[j]), 4)
+            r["target_hole_count"] = int(hc[j])
+            r["siou_k1"] = float(r["siou_k1"])
             r["siou_bestk"] = float(r["siou_bestk"])
-            r["target_hole_count"] = int(r["target_hole_count"])
+            r["success"] = r["success"] == "True"
+            r["build_ok"] = r["build_ok"] == "True"
+        # Persist so ood_results.csv / ood_summary.csv agree with the figure
+        # and the re-bucketed npz (numbers unchanged, only the labels move).
+        csv_path, summary_path = _write_csvs(rows_out, args.out_dir)
         fields = np.load(os.path.join(args.out_dir, "ood_pred_fields.npz"), allow_pickle=True)
         field_by_name = dict(zip(list(fields["names"]), fields["pred_x"]))
         masks_for_fig = np.stack([mask_by_name[r["name"]] for r in rows_out])
         best_pred_x = {k: field_by_name[r["name"]] for k, r in enumerate(rows_out)}
-        _make_figures(
+        fig_path = _make_figures(
             rows_out, best_pred_x, masks_for_fig, context, rows, cols, x_min, x_max, args.out_dir
         )
-        print("Rebuilt figures from cached results (no sampling).")
+        print("Rebuilt artifacts from cached results (no sampling):")
+        print(f"  per-target : {csv_path}")
+        print(f"  summary    : {summary_path}")
+        print(f"  figure     : {fig_path}")
+        with open(summary_path, encoding="utf-8") as fh:
+            print("\n" + fh.read())
         return
 
     model = build_model(config, device=device)
@@ -363,34 +420,7 @@ def main() -> None:
         )
 
     dt = time.time() - t_start
-    os.makedirs(args.out_dir, exist_ok=True)
-
-    csv_path = os.path.join(args.out_dir, "ood_results.csv")
-    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows_out[0].keys()))
-        w.writeheader()
-        w.writerows(rows_out)
-
-    summary_path = os.path.join(args.out_dir, "ood_summary.csv")
-    with open(summary_path, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(
-            ["bucket", "n", "siou_k1_mean", "siou_bestk_mean", "success_rate", "build_fail_rate"]
-        )
-        for b in BUCKET_ORDER + ["ALL"]:
-            grp = rows_out if b == "ALL" else [r for r in rows_out if r["bucket"] == b]
-            if not grp:
-                continue
-            w.writerow(
-                [
-                    b,
-                    len(grp),
-                    round(float(np.mean([r["siou_k1"] for r in grp])), 4),
-                    round(float(np.mean([r["siou_bestk"] for r in grp])), 4),
-                    round(float(np.mean([r["success"] for r in grp])), 4),
-                    round(float(np.mean([not r["build_ok"] for r in grp])), 4),
-                ]
-            )
+    csv_path, summary_path = _write_csvs(rows_out, args.out_dir)
 
     fields_path = os.path.join(args.out_dir, "ood_pred_fields.npz")
     np.savez_compressed(
@@ -586,6 +616,14 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     gsc = fig.add_gridspec(1, 1, left=0.065, right=0.99, top=sc_top, bottom=sc_bot)
     axc = fig.add_subplot(gsc[0])
     sols = [r["solidity"] for r in rows_out]
+    # Make the (now principled) taxonomy visible: shade the convex zone and
+    # mark the data-grounded solidity cut that separates convex from concave.
+    axc.axvspan(
+        SOLIDITY_CONVEX_TAU, 1.06, color=colors["convex"], alpha=0.07, zorder=0, lw=0
+    )
+    axc.axvline(
+        SOLIDITY_CONVEX_TAU, color=colors["convex"], ls="--", lw=1.1, alpha=0.55, zorder=1
+    )
     for b in BUCKET_ORDER:
         grp = [r for r in rows_out if r["bucket"] == b]
         if not grp:
@@ -643,6 +681,18 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     fig.text(0.010, 0.962, "(a)", fontsize=18, fontweight="bold", ha="left", va="bottom")
     fig.text(b_left - 0.030, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
     fig.text(0.010, sc_top + 0.012, "(c)", fontsize=18, fontweight="bold", ha="left", va="bottom")
+    fig.text(
+        0.5 * (0.065 + 0.99),
+        0.018,
+        "Bucket is derived from the target mask: with_hole if it has an interior hole; "
+        f"else convex if solidity >= {SOLIDITY_CONVEX_TAU:g}, else concave. "
+        "literal = the shapes the reviewers named (a provenance set).",
+        ha="center",
+        va="bottom",
+        fontsize=9.5,
+        style="italic",
+        color="0.25",
+    )
 
     out = os.path.join(out_dir, "ood_overview.pdf")
     fig.savefig(out, dpi=200)
