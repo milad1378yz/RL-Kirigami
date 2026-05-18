@@ -457,10 +457,10 @@ CURATED_PANEL = [
 # Offsets (in points) are hand-tuned to land in empty regions with short
 # leaders and no box-box overlap.
 CURATED_CALLOUTS = {
-    "concave/L_notch0.40": (34.0, -78.0),
-    "concave/plus_arm0.40": (-66.0, 26.0),
-    "literal/letter_S": (-64.0, -40.0),
-    "topological_limit/annulus_in0.30": (-58.0, 50.0),
+    "concave/L_notch0.40": (-89.0, 9.0),
+    "concave/plus_arm0.40": (53.0, -26.0),
+    "literal/letter_S": (41.0, -39.0),
+    "topological_limit/annulus_in0.30": (0.0, -52.0),
 }
 
 
@@ -502,16 +502,16 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
                 "DejaVu Serif",
             ],
             "mathtext.fontset": "cm",
-            "font.size": 13,
+            "font.size": 9,
             "font.weight": "normal",
-            "axes.labelsize": 15,
+            "axes.labelsize": 11,
             "axes.labelweight": "bold",
-            "axes.titlesize": 14,
+            "axes.titlesize": 11,
             "axes.titleweight": "bold",
-            "axes.linewidth": 1.1,
-            "legend.fontsize": 12,
-            "xtick.labelsize": 12,
-            "ytick.labelsize": 12,
+            "axes.linewidth": 0.9,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
         }
     )
     colors = BUCKET_COLORS
@@ -522,20 +522,20 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     ]
     name_to_idx = {r["name"]: i for i, r in enumerate(rows_out)}
 
-    fig = plt.figure(figsize=(13.0, 11.2))
+    fig = plt.figure(figsize=(6.9, 7.55))
     # Top band: (a) vertical preview | (b) representative cases. Bottom: (c) scatter.
-    top_top, top_bot = 0.955, 0.470
-    sc_top, sc_bot = 0.405, 0.085
+    top_top, top_bot = 0.940, 0.515
+    sc_top, sc_bot = 0.470, 0.058
 
     # ---- (a) OOD target set: vertical thumbnail strip, border = category ------
     order = sorted(
         range(len(rows_out)),
         key=lambda i: (BUCKET_ORDER.index(rows_out[i]["bucket"]), -rows_out[i]["solidity"]),
     )
-    pcols = 5
+    pcols = 7
     prows = int(np.ceil(len(order) / pcols))
     gsa = fig.add_gridspec(
-        prows, pcols, left=0.045, right=0.40, top=top_top, bottom=top_bot, wspace=0.06, hspace=0.06
+        prows, pcols, left=0.040, right=0.675, top=top_top, bottom=top_bot, wspace=0.05, hspace=0.05
     )
     for slot, idx in enumerate(order):
         axc = fig.add_subplot(gsa[slot // pcols, slot % pcols])
@@ -570,17 +570,17 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     # silhouette y, the compact rectangle (phi=pi cut sheet) decoded from x, and
     # the generated deployed structure with the *aligned target* overlaid
     # (matches _siou_and_aligned_target_mask in generate_table2_visual_comparison).
-    headers = ["Target", "Compact rectangle", "Generated"]
-    b_left = 0.47  # narrower (b), wider (a)
+    headers = ["Target", "Compact\nrectangle", "Generated"]
+    b_left = 0.705
     gsb = fig.add_gridspec(
         len(picks),
         3,
         left=b_left,
-        right=0.99,
+        right=0.985,
         top=top_top,
         bottom=top_bot,
-        wspace=0.04,
-        hspace=0.10,
+        wspace=0.08,
+        hspace=0.06,
     )
     for r_idx, (_, i) in enumerate(picks):
         gt_mask = masks_np[i]
@@ -616,10 +616,12 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             cells[c].set_yticks([])
         if r_idx == 0:
             for c in range(3):
-                cells[c].set_title(headers[c], fontsize=13, fontweight="bold")
+                cells[c].set_title(
+                    headers[c], fontsize=8, fontweight="bold", linespacing=0.95, pad=3
+                )
 
     # ---- (c) sIoU vs. solidity (full width) -----------------------------------
-    gsc = fig.add_gridspec(1, 1, left=0.065, right=0.99, top=sc_top, bottom=sc_bot)
+    gsc = fig.add_gridspec(1, 1, left=0.060, right=0.985, top=sc_top, bottom=sc_bot)
     axc = fig.add_subplot(gsc[0])
     sols = [r["solidity"] for r in rows_out]
     for b in BUCKET_ORDER:
@@ -648,25 +650,36 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
         composite = np.concatenate([tgt_rgb, sep, overlay], axis=1)
         axc.add_artist(
             AnnotationBbox(
-                OffsetImage(composite, zoom=0.30),
+                OffsetImage(composite, zoom=0.16),
                 (r["solidity"], r["siou_bestk"]),
                 xybox=(dx, dy),
                 xycoords="data",
                 boxcoords="offset points",
                 frameon=True,
-                pad=0.18,
-                bboxprops=dict(edgecolor=colors[r["bucket"]], linewidth=1.4),
-                arrowprops=dict(arrowstyle="-", color="0.4", lw=1.0),
+                pad=0.12,
+                bboxprops=dict(edgecolor=colors[r["bucket"]], linewidth=0.9),
+                arrowprops=dict(arrowstyle="-", color="0.45", lw=0.7),
                 zorder=5,
             )
         )
     # "with_hole" is its own bucket -> no separate "has hole" entry (duplication).
-    axc.legend(
+    bucket_leg = axc.legend(
         handles=bucket_handles,
         loc="lower right",
-        fontsize=11,
+        fontsize=8,
         framealpha=0.95,
         ncol=1,
+    )
+    axc.add_artist(bucket_leg)
+    # Overlay key for the callout thumbnails, kept inside (c) (empty upper-left)
+    # so the panel can reach the bottom without colliding with the x label.
+    axc.legend(
+        handles=overlay_key,
+        loc="upper left",
+        fontsize=8,
+        framealpha=0.95,
+        ncol=1,
+        handlelength=1.2,
     )
     axc.set_xlabel("solidity")
     axc.set_ylabel("sIoU")
@@ -674,20 +687,11 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     axc.set_ylim(0.0, 1.02)
     axc.grid(alpha=0.3)
 
-    fig.text(0.010, 0.962, "(a)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(b_left - 0.030, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(0.010, sc_top + 0.012, "(c)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    # Key for the (c) callout overlays (target|overlay thumbnails).
-    fig.legend(
-        handles=overlay_key,
-        loc="center",
-        bbox_to_anchor=(0.5 * (0.065 + 0.99), 0.020),
-        ncol=3,
-        fontsize=11,
-        frameon=False,
-        handlelength=1.3,
-        columnspacing=1.6,
+    fig.text(0.004, top_top + 0.035, "(a)", fontsize=13, fontweight="bold", ha="left", va="bottom")
+    fig.text(
+        b_left, top_top + 0.035, "(b)", fontsize=13, fontweight="bold", ha="left", va="bottom"
     )
+    fig.text(0.004, sc_top + 0.014, "(c)", fontsize=13, fontweight="bold", ha="left", va="bottom")
 
     out = os.path.join(out_dir, "ood_overview.pdf")
     fig.savefig(out, dpi=200)
