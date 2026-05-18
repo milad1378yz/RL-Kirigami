@@ -767,20 +767,27 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     y_max_grid = max(float(np.max(y_ood)), float(np.quantile(y_valid, 0.995))) + 0.55
     x_grid, y_grid = np.mgrid[x_min_grid:x_max_grid:220j, y_min_grid:y_max_grid:220j]
     density = pca_scores["kde"](np.vstack([x_grid.ravel(), y_grid.ravel()])).reshape(x_grid.shape)
-    contour = axd.contour(
+    contour_colors = ["#8c564b", "#2f7f5f", "#1f77b4", "#34495e"]
+    contour_widths = [0.8, 0.9, 1.0, 1.1]
+    axd.contour(
         x_grid,
         y_grid,
         density,
         levels=pca_scores["levels"],
-        colors=["#8c564b", "#2f7f5f", "#1f77b4", "#34495e"],
-        linewidths=[0.8, 0.9, 1.0, 1.1],
+        colors=contour_colors,
+        linewidths=contour_widths,
         zorder=1,
     )
-    label_map = {
-        level: f"{int(round(mass * 100))}%"
-        for level, mass in zip(pca_scores["levels"], pca_scores["mass_levels"])
-    }
-    axd.clabel(contour, contour.levels, inline=True, fontsize=7, fmt=label_map)
+    contour_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=color,
+            lw=lw,
+            label=f"{int(round(mass * 100))}%",
+        )
+        for color, lw, mass in zip(contour_colors, contour_widths, pca_scores["mass_levels"])
+    ]
     for b in BUCKET_ORDER:
         idx = [i for i, r in enumerate(rows_out) if r["bucket"] == b]
         if not idx:
@@ -795,6 +802,19 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             linewidths=0.45,
             zorder=3,
         )
+    contour_leg = axd.legend(
+        handles=contour_handles,
+        title="validation contours",
+        loc="upper left",
+        fontsize=7,
+        title_fontsize=7,
+        framealpha=0.95,
+        ncol=2,
+        columnspacing=0.8,
+        handlelength=1.6,
+        handletextpad=0.4,
+    )
+    axd.add_artist(contour_leg)
     axd.legend(
         handles=bucket_handles,
         loc="upper right",
@@ -803,15 +823,6 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
         ncol=2,
         columnspacing=0.8,
         handletextpad=0.3,
-    )
-    axd.text(
-        0.03,
-        0.97,
-        "validation contours",
-        transform=axd.transAxes,
-        ha="left",
-        va="top",
-        fontsize=7,
     )
     axd.text(
         0.97,
