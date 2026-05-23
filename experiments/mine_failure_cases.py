@@ -52,9 +52,9 @@ Outputs (default ``outputs/failures/``):
   - ``cases/<id>.png``          : the same row saved on its own, for slides.
   - ``failure_minimal.pdf``     : the minimal paper figure -- one row per
                                   failure mode (overlap, hole not
-                                  representable, poor silhouette match), in the
-                                  paper's panel-(b) style (Target | Compact
-                                  rectangle | Generated).
+                                  representable, poor silhouette match),
+                                  columns Target | Generated | Overlay with a
+                                  shared color key, in the paper figure fonts.
   - ``failure_minimal.png``     : raster preview of the minimal figure.
 
 Run from the repo root, after ``experiments.eval_ood_targets``:
@@ -333,26 +333,45 @@ def select_minimal(classified: list[dict]) -> list[dict]:
     return picks
 
 
+# Same plotting style as the OOD overview figure (eval_ood_targets._make_figures)
+# so the failure figure visually matches the other paper figures.
+_PAPER_RC = {
+    "font.family": "serif",
+    "font.serif": ["Latin Modern Roman", "Liberation Serif", "Nimbus Roman", "DejaVu Serif"],
+    "mathtext.fontset": "cm",
+    "font.size": 9,
+    "font.weight": "normal",
+    "axes.labelsize": 11,
+    "axes.labelweight": "bold",
+    "axes.titlesize": 11,
+    "axes.titleweight": "bold",
+    "axes.linewidth": 0.9,
+    "legend.fontsize": 8,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
+}
+
+
 def make_minimal_panel(picks, mask_by_name, field_by_name, context, rows, cols,
                        x_min, x_max, out_dir):
-    """Compact figure in the paper's panel-(b) style: one row per failure mode,
-    columns Target | Compact rectangle | Generated (aligned target overlaid)."""
+    """Minimal self-explanatory failure figure: one row per failure mode,
+    columns Target | Generated | Overlay.
+
+    The overlay (green = match, red = generated only, blue = target only) makes
+    every mode legible without reading the caption: the hole row shows a solid
+    red disc inside a blue ring, the poor-match row shows a red/blue boundary
+    fringe, and the overlap row shows a broken structure with a large
+    mismatch. A shared color key is drawn once at the bottom."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
-    plt.rcParams.update(
-        {
-            "font.family": "serif",
-            "font.serif": ["Latin Modern Roman", "Liberation Serif", "DejaVu Serif"],
-            "mathtext.fontset": "cm",
-            "font.size": 9,
-        }
-    )
-    headers = ["Target", "Compact rectangle", "Generated"]
+    plt.rcParams.update(_PAPER_RC)
+    headers = ["Target", "Generated", "Overlay"]
     n = len(picks)
-    fig, axes = plt.subplots(n, 3, figsize=(6.0, 1.95 * n), squeeze=False)
+    fig, axes = plt.subplots(n, 3, figsize=(5.4, 1.85 * n + 0.35), squeeze=False)
     for r_idx, sel in enumerate(picks):
         name = sel["name"]
         gt_mask = mask_by_name[name]
@@ -367,41 +386,62 @@ def make_minimal_panel(picks, mask_by_name, field_by_name, context, rows, cols,
             x_min=x_min, x_max=x_max,
         )
         ax[0].imshow(gt_mask, cmap="gray_r", vmin=0.0, vmax=1.0)
-        try:
-            plot_x_matrix_structure(
-                ax[1], pred_x, context, phi=np.pi,
-                x_min=x_min, x_max=x_max, normalize_phi=np.pi,
-            )
-        except Exception:
-            ax[1].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
-        try:
-            _, aligned_target = best_alignment(gt_mask, pred_mask, refine=True)
-            plot_x_matrix_structure(
-                ax[2], pred_x, context, mask_2d=aligned_target.astype(np.float32),
+        try:  # generated deployed structure; crossing quads show overlap
+            pts = plot_x_matrix_structure(
+                ax[1], pred_x, context,
                 x_min=x_min, x_max=x_max, normalize_phi=None,
             )
+            # A degenerate (overlapping) structure has a few runaway vertices
+            # that would shrink the rest to a dot. Frame on the robust extent
+            # so the broken structure stays readable inside its own cell.
+            pts = np.asarray(pts, dtype=np.float64)
+            lo = np.percentile(pts, 2, axis=0)
+            hi = np.percentile(pts, 98, axis=0)
+            ctr = 0.5 * (lo + hi)
+            half = 0.5 * float(np.max(hi - lo)) * 1.15 or 1.0
+            ax[1].set_xlim(ctr[0] - half, ctr[0] + half)
+            ax[1].set_ylim(ctr[1] - half, ctr[1] + half)
+            ax[1].set_aspect("equal")
         except Exception:
-            ax[2].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
+            ax[1].text(0.5, 0.5, "invalid", ha="center", va="center", fontsize=9)
+
+        siou, aligned_pred = best_alignment(pred_mask, gt_mask, refine=True)
+        overlay = mask_overlay_rgb(
+            aligned_pred.astype(np.float32), gt_mask
+        ).astype(np.float32)
+        overlay[~np.any(overlay > 0, axis=2)] = 1.0  # white background
+        ax[2].imshow(overlay)
         for a in ax:
             a.set_xticks([])
             a.set_yticks([])
 
         cat = sel["primary_category"]
         if cat == "overlap":
-            metric = (f"$r_{{\\mathrm{{ov}}}}$={sel['overlap_ratio']:.2f}\n"
+            metric = (f"$r_{{\\mathrm{{ov}}}}{{=}}{sel['overlap_ratio']:.2f}$\n"
                       f"{sel['invalid_quad_count']} invalid quads")
         else:
-            metric = f"sIoU {sel['siou_bestk']:.2f}"
+            metric = f"$\\mathrm{{sIoU}}{{=}}{sel['siou_bestk']:.2f}$"
         ax[0].set_ylabel(
-            f"{MINIMAL_LABEL[cat]}\n({metric})",
+            f"{MINIMAL_LABEL[cat]}\n{metric}",
             fontsize=9, fontweight="bold", rotation=0, ha="right", va="center",
-            labelpad=14,
+            labelpad=10,
         )
         if r_idx == 0:
             for c, htxt in enumerate(headers):
-                ax[c].set_title(htxt, fontsize=9, fontweight="bold", pad=4)
+                ax[c].set_title(htxt, fontsize=10, fontweight="bold", pad=4)
 
-    fig.subplots_adjust(left=0.235, right=0.99, top=0.93, bottom=0.02,
+    legend_h = [
+        Patch(facecolor=(0.0, 1.0, 0.0), edgecolor="0.4", label="match"),
+        Patch(facecolor=(1.0, 0.0, 0.0), edgecolor="0.4", label="generated only"),
+        Patch(facecolor=(0.0, 0.0, 1.0), edgecolor="0.4", label="target only"),
+    ]
+    fig.legend(
+        handles=legend_h, loc="lower center", ncol=3, frameon=False,
+        fontsize=8.5, handlelength=1.4, columnspacing=1.4, handletextpad=0.5,
+        bbox_to_anchor=(0.6, 0.0),
+    )
+    bottom = 0.30 / (1.85 * n + 0.35) + 0.01
+    fig.subplots_adjust(left=0.255, right=0.99, top=0.94, bottom=bottom,
                         wspace=0.06, hspace=0.10)
     pdf_path = os.path.join(out_dir, "failure_minimal.pdf")
     png_path = os.path.join(out_dir, "failure_minimal.png")
