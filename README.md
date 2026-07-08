@@ -66,13 +66,12 @@ Keep the two YAML files consistent: `training.yaml` reads `grid_rows`, `grid_col
 If you use this code, please cite:
 
 ```bibtex
-@article{yazdani2026rlkirigami,
+@article{yazdani2026reinforcement,
   title={Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes},
   author={Yazdani, Milad and Shalileh, Shahriar and Shahriari, Dena},
   journal={Materials \& Design},
+  pages={116545},
   year={2026},
-  articleno={116545},
-  doi={10.1016/j.matdes.2026.116545},
-  url={https://doi.org/10.1016/j.matdes.2026.116545}
+  publisher={Elsevier}
 }
 ```
