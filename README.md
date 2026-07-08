@@ -1,6 +1,6 @@
 # RL-Kirigami
 
-Code for [Reinforcement learning for inverse structural design and rapid laser cutting of kirigami prototypes](https://arxiv.org/abs/2605.08098). RL-Kirigami performs inverse design for compact reconfigurable parallelogram quad kirigami: an OT-CFM generator proposes ratio fields conditioned on a target deployed silhouette, and GRPO aligns the generator to non-differentiable rewards (silhouette match, feasibility, ratio-field regularity). Decoded layouts can be exported as DXF for laser cutting.
+Code for [Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes](https://doi.org/10.1016/j.matdes.2026.116545), published in *Materials & Design* (2026), article 116545. RL-Kirigami performs inverse design for compact reconfigurable parallelogram quad kirigami: an OT-CFM generator proposes ratio fields conditioned on a target deployed silhouette, and GRPO aligns the generator to non-differentiable rewards (silhouette match, feasibility, ratio-field regularity). Decoded layouts can be exported as DXF for laser cutting.
 
 <p align="center">
   <img src="assets/pipeline.png" width="88%">
@@ -66,14 +66,13 @@ Keep the two YAML files consistent: `training.yaml` reads `grid_rows`, `grid_col
 If you use this code, please cite:
 
 ```bibtex
-@misc{yazdani2026rlkirigami,
-  title={Reinforcement learning for inverse structural design and rapid laser cutting of kirigami prototypes},
+@article{yazdani2026rlkirigami,
+  title={Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes},
   author={Yazdani, Milad and Shalileh, Shahriar and Shahriari, Dena},
+  journal={Materials \& Design},
   year={2026},
-  eprint={2605.08098},
-  archivePrefix={arXiv},
-  primaryClass={cs.LG},
-  doi={10.48550/arXiv.2605.08098},
-  url={https://arxiv.org/abs/2605.08098}
+  articleno={116545},
+  doi={10.1016/j.matdes.2026.116545},
+  url={https://doi.org/10.1016/j.matdes.2026.116545}
 }
 ```
