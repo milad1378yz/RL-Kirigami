@@ -14,6 +14,7 @@ import argparse
 import csv
 import math
 import os
+import pickle
 import re
 import sys
 import time
@@ -454,19 +455,16 @@ CURATED_PANEL = [
 ]
 
 # A few scatter points to call out with a small (target | overlay) image.
-# Offsets (in points) are hand-tuned to land in empty regions with short
-# leaders and no box-box overlap.
 CURATED_CALLOUTS = {
-    "concave/L_notch0.40": (34.0, -78.0),
-    "concave/plus_arm0.40": (-66.0, 26.0),
-    "literal/letter_S": (-64.0, -40.0),
-    "topological_limit/annulus_in0.30": (-58.0, 50.0),
+    "concave/L_notch0.40": (-22.0, 18.0),
+    "concave/plus_arm0.40": (-22.0, -14.0),
+    "literal/letter_S": (25.0, 18.0),
+    "topological_limit/annulus_in0.30": (0.0, -22.0),
 }
 
 
 def _overlay_target_frame(pred_x, gt_mask, context, rows, cols, x_min, x_max):
-    """Decoded mask + overlay with the generated shape warped onto the
-    undistorted target at the pose/size that maximizes coverage (sIoU)."""
+    """Decoded mask + overlay at the pose/size that maximizes coverage (sIoU)."""
     pred_mask, _, _, _ = render_structure_mask_and_metrics(
         rows,
         cols,
@@ -479,8 +477,91 @@ def _overlay_target_frame(pred_x, gt_mask, context, rows, cols, x_min, x_max):
     )
     siou, aligned_pred = best_alignment(pred_mask, gt_mask, refine=True)
     overlay = mask_overlay_rgb(aligned_pred.astype(np.float32), gt_mask).astype(np.float32)
-    overlay[~np.any(overlay > 0, axis=2)] = 1.0  # black background -> white (print-clean)
+    overlay[~np.any(overlay > 0, axis=2)] = 1.0
     return pred_mask, overlay, float(siou)
+
+
+def _load_pickle_compat(path: str):
+    # Some generated pickles refer to numpy._core, while older NumPy exposes numpy.core.
+    import numpy.core as np_core
+    import numpy.core.multiarray as np_multiarray
+    import numpy.core.numeric as np_numeric
+
+    sys.modules.setdefault("numpy._core", np_core)
+    sys.modules.setdefault("numpy._core.multiarray", np_multiarray)
+    sys.modules.setdefault("numpy._core.numeric", np_numeric)
+    with open(path, "rb") as fh:
+        return pickle.load(fh)
+
+
+def _load_dataset_masks(dataset_path: str, split: str) -> np.ndarray:
+    data = _load_pickle_compat(dataset_path)
+    masks = []
+    for entry in data[split]:
+        mask = np.asarray(entry["mask"], dtype=np.float32)
+        if mask.ndim == 3 and mask.shape[0] == 1:
+            mask = mask[0]
+        masks.append(mask)
+    return np.stack(masks, axis=0)
+
+
+def _flatten_masks(masks: np.ndarray) -> np.ndarray:
+    return np.asarray(masks, dtype=np.float32).reshape(masks.shape[0], -1)
+
+
+def _pca_ood_scores(ood_masks: np.ndarray, *, components: int = 64) -> dict:
+    from scipy.stats import gaussian_kde
+    from sklearn.decomposition import PCA
+    from sklearn.neighbors import NearestNeighbors
+
+    dataset_path = os.path.join(
+        os.path.dirname(_REPO_ROOT), "fm_inverse_2d", "data", "kirigami_dataset_5000_500.pkl"
+    )
+    train_masks = _load_dataset_masks(dataset_path, "train")
+    valid_masks = _load_dataset_masks(dataset_path, "valid")
+    train_flat = _flatten_masks(train_masks)
+    valid_flat = _flatten_masks(valid_masks)
+    ood_flat = _flatten_masks(ood_masks)
+
+    pca = PCA(n_components=components, svd_solver="randomized", random_state=0)
+    train_scores = pca.fit_transform(train_flat)
+    valid_scores = pca.transform(valid_flat)
+    ood_scores = pca.transform(ood_flat)
+
+    nn = NearestNeighbors(n_neighbors=1, metric="euclidean")
+    nn.fit(train_scores)
+    valid_nn = nn.kneighbors(valid_scores, return_distance=True)[0][:, 0]
+    ood_nn = nn.kneighbors(ood_scores, return_distance=True)[0][:, 0]
+
+    valid_rec = pca.inverse_transform(valid_scores)
+    ood_rec = pca.inverse_transform(ood_scores)
+    valid_rmse = np.sqrt(np.mean((valid_flat - valid_rec) ** 2, axis=1))
+    ood_rmse = np.sqrt(np.mean((ood_flat - ood_rec) ** 2, axis=1))
+
+    x_valid = valid_nn / np.median(valid_nn)
+    y_valid = valid_rmse / np.median(valid_rmse)
+    x_ood = ood_nn / np.median(valid_nn)
+    y_ood = ood_rmse / np.median(valid_rmse)
+
+    kde = gaussian_kde(np.vstack([x_valid, y_valid]))
+    valid_density = kde(np.vstack([x_valid, y_valid]))
+    mass_levels = [0.99, 0.90, 0.75, 0.50]
+    levels = np.array([np.quantile(valid_density, 1.0 - mass) for mass in mass_levels])
+    order = np.argsort(levels)
+
+    return {
+        "x_valid": x_valid,
+        "y_valid": y_valid,
+        "x_ood": x_ood,
+        "y_ood": y_ood,
+        "kde": kde,
+        "levels": levels[order],
+        "mass_levels": [mass_levels[i] for i in order],
+        "explained": float(pca.explained_variance_ratio_.sum()),
+        "nn_median": float(np.median(x_ood)),
+        "rmse_median": float(np.median(y_ood)),
+        "outside_99": int((kde(np.vstack([x_ood, y_ood])) < np.quantile(valid_density, 0.01)).sum()),
+    }
 
 
 def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x_max, out_dir):
@@ -490,7 +571,6 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from matplotlib.offsetbox import AnnotationBbox, OffsetImage
-    from matplotlib.patches import Patch
 
     plt.rcParams.update(
         {
@@ -502,40 +582,36 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
                 "DejaVu Serif",
             ],
             "mathtext.fontset": "cm",
-            "font.size": 13,
+            "font.size": 9,
             "font.weight": "normal",
-            "axes.labelsize": 15,
+            "axes.labelsize": 11,
             "axes.labelweight": "bold",
-            "axes.titlesize": 14,
+            "axes.titlesize": 11,
             "axes.titleweight": "bold",
-            "axes.linewidth": 1.1,
-            "legend.fontsize": 12,
-            "xtick.labelsize": 12,
-            "ytick.labelsize": 12,
+            "axes.linewidth": 0.9,
+            "legend.fontsize": 8,
+            "xtick.labelsize": 8,
+            "ytick.labelsize": 8,
         }
     )
     colors = BUCKET_COLORS
-    overlay_key = [
-        Patch(facecolor=(0.0, 0.8, 0.0), edgecolor="k", label="match"),
-        Patch(facecolor=(1.0, 0.0, 0.0), edgecolor="k", label="generated only"),
-        Patch(facecolor=(0.0, 0.0, 1.0), edgecolor="k", label="target only"),
-    ]
     name_to_idx = {r["name"]: i for i, r in enumerate(rows_out)}
 
-    fig = plt.figure(figsize=(13.0, 11.2))
-    # Top band: (a) vertical preview | (b) representative cases. Bottom: (c) scatter.
-    top_top, top_bot = 0.955, 0.470
-    sc_top, sc_bot = 0.405, 0.085
+    fig = plt.figure(figsize=(7.45, 7.55))
+    # Top band: (a) vertical preview | (b) representative cases.
+    # Bottom band: (c) performance scatter | (d) PCA OOD-score contours.
+    top_top, top_bot = 0.940, 0.515
+    sc_top, sc_bot = 0.470, 0.058
 
     # ---- (a) OOD target set: vertical thumbnail strip, border = category ------
     order = sorted(
         range(len(rows_out)),
         key=lambda i: (BUCKET_ORDER.index(rows_out[i]["bucket"]), -rows_out[i]["solidity"]),
     )
-    pcols = 5
+    pcols = 7
     prows = int(np.ceil(len(order) / pcols))
     gsa = fig.add_gridspec(
-        prows, pcols, left=0.045, right=0.40, top=top_top, bottom=top_bot, wspace=0.06, hspace=0.06
+        prows, pcols, left=0.040, right=0.675, top=top_top, bottom=top_bot, wspace=0.05, hspace=0.05
     )
     for slot, idx in enumerate(order):
         axc = fig.add_subplot(gsa[slot // pcols, slot % pcols])
@@ -570,17 +646,17 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
     # silhouette y, the compact rectangle (phi=pi cut sheet) decoded from x, and
     # the generated deployed structure with the *aligned target* overlaid
     # (matches _siou_and_aligned_target_mask in generate_table2_visual_comparison).
-    headers = ["Target", "Compact rectangle", "Generated"]
-    b_left = 0.47  # narrower (b), wider (a)
+    headers = ["Target", "Compact\nrectangle", "Generated"]
+    b_left = 0.705
     gsb = fig.add_gridspec(
         len(picks),
         3,
         left=b_left,
-        right=0.99,
+        right=0.985,
         top=top_top,
         bottom=top_bot,
-        wspace=0.04,
-        hspace=0.10,
+        wspace=0.08,
+        hspace=0.06,
     )
     for r_idx, (_, i) in enumerate(picks):
         gt_mask = masks_np[i]
@@ -616,10 +692,12 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
             cells[c].set_yticks([])
         if r_idx == 0:
             for c in range(3):
-                cells[c].set_title(headers[c], fontsize=13, fontweight="bold")
+                cells[c].set_title(
+                    headers[c], fontsize=8, fontweight="bold", linespacing=0.95, pad=3
+                )
 
-    # ---- (c) sIoU vs. solidity (full width) -----------------------------------
-    gsc = fig.add_gridspec(1, 1, left=0.065, right=0.99, top=sc_top, bottom=sc_bot)
+    # ---- (c) sIoU vs. solidity ------------------------------------------------
+    gsc = fig.add_gridspec(1, 1, left=0.060, right=0.505, top=sc_top, bottom=sc_bot)
     axc = fig.add_subplot(gsc[0])
     sols = [r["solidity"] for r in rows_out]
     for b in BUCKET_ORDER:
@@ -648,46 +726,126 @@ def _make_figures(rows_out, best_pred_x, masks_np, context, rows, cols, x_min, x
         composite = np.concatenate([tgt_rgb, sep, overlay], axis=1)
         axc.add_artist(
             AnnotationBbox(
-                OffsetImage(composite, zoom=0.30),
+                OffsetImage(composite, zoom=0.120),
                 (r["solidity"], r["siou_bestk"]),
                 xybox=(dx, dy),
                 xycoords="data",
                 boxcoords="offset points",
                 frameon=True,
-                pad=0.18,
-                bboxprops=dict(edgecolor=colors[r["bucket"]], linewidth=1.4),
-                arrowprops=dict(arrowstyle="-", color="0.4", lw=1.0),
+                pad=0.10,
+                bboxprops=dict(edgecolor=colors[r["bucket"]], linewidth=0.9),
+                arrowprops=dict(arrowstyle="-", color="0.45", lw=0.7),
                 zorder=5,
             )
         )
     # "with_hole" is its own bucket -> no separate "has hole" entry (duplication).
-    axc.legend(
+    bucket_leg = axc.legend(
         handles=bucket_handles,
-        loc="lower right",
-        fontsize=11,
+        loc="lower left",
+        fontsize=7,
         framealpha=0.95,
-        ncol=1,
+        ncol=2,
+        columnspacing=0.8,
+        handletextpad=0.3,
     )
+    axc.add_artist(bucket_leg)
     axc.set_xlabel("solidity")
     axc.set_ylabel("sIoU")
     axc.set_xlim(min(sols) - 0.05, 1.05)
     axc.set_ylim(0.0, 1.02)
     axc.grid(alpha=0.3)
 
-    fig.text(0.010, 0.962, "(a)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(b_left - 0.030, 0.962, "(b)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    fig.text(0.010, sc_top + 0.012, "(c)", fontsize=18, fontweight="bold", ha="left", va="bottom")
-    # Key for the (c) callout overlays (target|overlay thumbnails).
-    fig.legend(
-        handles=overlay_key,
-        loc="center",
-        bbox_to_anchor=(0.5 * (0.065 + 0.99), 0.020),
-        ncol=3,
-        fontsize=11,
-        frameon=False,
-        handlelength=1.3,
-        columnspacing=1.6,
+    # ---- (d) PCA OOD-score contours -------------------------------------------
+    gsd = fig.add_gridspec(1, 1, left=0.585, right=0.985, top=sc_top, bottom=sc_bot)
+    axd = fig.add_subplot(gsd[0])
+    pca_scores = _pca_ood_scores(masks_np, components=64)
+    x_valid, y_valid = pca_scores["x_valid"], pca_scores["y_valid"]
+    x_ood, y_ood = pca_scores["x_ood"], pca_scores["y_ood"]
+    x_min_grid = 0.30
+    x_max_grid = max(float(np.max(x_ood)), float(np.quantile(x_valid, 0.995))) + 0.20
+    y_min_grid = 0.80
+    y_max_grid = max(float(np.max(y_ood)), float(np.quantile(y_valid, 0.995))) + 0.55
+    x_grid, y_grid = np.mgrid[x_min_grid:x_max_grid:220j, y_min_grid:y_max_grid:220j]
+    density = pca_scores["kde"](np.vstack([x_grid.ravel(), y_grid.ravel()])).reshape(x_grid.shape)
+    contour_colors = ["#8c564b", "#2f7f5f", "#1f77b4", "#34495e"]
+    contour_widths = [0.8, 0.9, 1.0, 1.1]
+    axd.contour(
+        x_grid,
+        y_grid,
+        density,
+        levels=pca_scores["levels"],
+        colors=contour_colors,
+        linewidths=contour_widths,
+        zorder=1,
     )
+    contour_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=color,
+            lw=lw,
+            label=f"{int(round(mass * 100))}%",
+        )
+        for color, lw, mass in zip(contour_colors, contour_widths, pca_scores["mass_levels"])
+    ]
+    for b in BUCKET_ORDER:
+        idx = [i for i, r in enumerate(rows_out) if r["bucket"] == b]
+        if not idx:
+            continue
+        axd.scatter(
+            x_ood[idx],
+            y_ood[idx],
+            c=colors[b],
+            s=42,
+            marker="o",
+            edgecolors="k",
+            linewidths=0.45,
+            zorder=3,
+        )
+    contour_leg = axd.legend(
+        handles=contour_handles,
+        title="validation contours",
+        loc="upper left",
+        fontsize=7,
+        title_fontsize=7,
+        framealpha=0.95,
+        ncol=2,
+        columnspacing=0.8,
+        handlelength=1.6,
+        handletextpad=0.4,
+    )
+    axd.add_artist(contour_leg)
+    axd.legend(
+        handles=bucket_handles,
+        loc="upper right",
+        fontsize=7,
+        framealpha=0.95,
+        ncol=2,
+        columnspacing=0.8,
+        handletextpad=0.3,
+    )
+    axd.text(
+        0.97,
+        0.03,
+        f"{pca_scores['outside_99']}/{len(rows_out)} outside 99%",
+        transform=axd.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=7,
+        bbox=dict(boxstyle="round,pad=0.18", facecolor="white", edgecolor="0.82", alpha=0.96),
+    )
+    axd.set_xlabel("PCA distance / val. median")
+    axd.set_ylabel("PCA recon. RMSE / val. median")
+    axd.set_xlim(x_min_grid, x_max_grid)
+    axd.set_ylim(y_min_grid, y_max_grid)
+    axd.grid(alpha=0.3)
+
+    fig.text(0.004, top_top + 0.035, "(a)", fontsize=13, fontweight="bold", ha="left", va="bottom")
+    fig.text(
+        b_left, top_top + 0.035, "(b)", fontsize=13, fontweight="bold", ha="left", va="bottom"
+    )
+    fig.text(0.004, sc_top + 0.014, "(c)", fontsize=13, fontweight="bold", ha="left", va="bottom")
+    fig.text(0.525, sc_top + 0.014, "(d)", fontsize=13, fontweight="bold", ha="left", va="bottom")
 
     out = os.path.join(out_dir, "ood_overview.pdf")
     fig.savefig(out, dpi=200)
