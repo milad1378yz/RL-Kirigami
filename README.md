@@ -19,21 +19,6 @@ Research code accompanying our 2026 *Materials & Design* paper.
 
 ---
 
-## Overview
-
-RL-Kirigami is an inverse-design framework for compact reconfigurable parallelogram quad kirigami. Given a target deployed silhouette, the framework:
-
-- uses **optimal-transport conditional flow matching (OT-CFM)** to generate candidate ratio fields;
-- applies a marching decoder to enforce globally compatible kirigami geometry;
-- fine-tunes the generator with **Group Relative Policy Optimization (GRPO)**-style using non-differentiable rewards for silhouette agreement, feasibility, and ratio-field regularity; and
-- supports a rapid fabrication workflow for laser-cut kirigami prototypes.
-
-<p align="center">
-  <img src="assets/pipeline.png" width="88%" alt="RL-Kirigami inverse-design and fabrication pipeline">
-  <br>
-  <sub>RL-Kirigami pipeline: target silhouette, conditional generation, geometric decoding, and fabrication.</sub>
-</p>
-
 ## Inverse design in motion
 
 These animations pair an exact regular-hexagon target with a validated matching cut pattern from RL-Kirigami's geometry pipeline. The compact pattern and every deployment frame are computed by `solve_flat_points` and `compute_pose_points`.
@@ -59,6 +44,21 @@ The compact rectangular pattern is deployed from `phi = pi` to `phi = 0` using t
 </p>
 
 Manim is used only to compose the regular-hexagon target, project-generated quadrilaterals, and deployment frames. The reproducible source is [`assets/inverse_design_animation.py`](assets/inverse_design_animation.py).
+
+## Overview
+
+RL-Kirigami is an inverse-design framework for compact reconfigurable parallelogram quad kirigami. Given a target deployed silhouette, the framework:
+
+- uses **optimal-transport conditional flow matching (OT-CFM)** to generate candidate ratio fields;
+- applies a marching decoder to enforce globally compatible kirigami geometry;
+- fine-tunes the generator with **Group Relative Policy Optimization (GRPO)**-style using non-differentiable rewards for silhouette agreement, feasibility, and ratio-field regularity; and
+- supports a rapid fabrication workflow for laser-cut kirigami prototypes.
+
+<p align="center">
+  <img src="assets/pipeline.png" width="88%" alt="RL-Kirigami inverse-design and fabrication pipeline">
+  <br>
+  <sub>RL-Kirigami pipeline: target silhouette, conditional generation, geometric decoding, and fabrication.</sub>
+</p>
 
 ## Publication
 
