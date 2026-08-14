@@ -5,7 +5,7 @@
 **Reinforcement learning for inverse silhouette design of compact, reconfigurable quad kirigami**
 
 <p>
-  <a href="https://www.sciencedirect.com/science/article/pii/S0264127526011184"><img alt="Paper in Materials & Design" src="https://img.shields.io/badge/Paper-Materials_%26_Design-005A9C?style=for-the-badge"></a>
+  <a href="https://doi.org/10.1016/j.matdes.2026.116545"><img alt="Paper in Materials & Design" src="https://img.shields.io/badge/Paper-Materials_%26_Design-005A9C?style=for-the-badge"></a>
   <a href="https://doi.org/10.1016/j.matdes.2026.116545"><img alt="DOI: 10.1016/j.matdes.2026.116545" src="https://img.shields.io/badge/DOI-10.1016%2Fj.matdes.2026.116545-B31B1B?style=for-the-badge&amp;logo=doi&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="Python 3.9-3.12" src="https://img.shields.io/badge/Python-3.9--3.12-3776AB?style=for-the-badge&amp;logo=python&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="PyTorch 2.5.1" src="https://img.shields.io/badge/PyTorch-2.5.1-EE4C2C?style=for-the-badge&amp;logo=pytorch&amp;logoColor=white"></a>
