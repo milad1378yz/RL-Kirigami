@@ -34,6 +34,32 @@ RL-Kirigami is an inverse-design framework for compact reconfigurable parallelog
   <sub>RL-Kirigami pipeline: target silhouette, conditional generation, geometric decoding, and fabrication.</sub>
 </p>
 
+## Inverse design in motion
+
+These animations pair an exact regular-hexagon target with a validated matching cut pattern from RL-Kirigami's geometry pipeline. The compact pattern and every deployment frame are computed by `solve_flat_points` and `compute_pose_points`.
+
+### From target shape to inferred cuts
+
+The target silhouette conditions the OT-CFM stage, which produces the compatible compact cut pattern shown in the animation.
+
+<p align="center">
+  <img src="assets/inverse_design.gif" width="88%" alt="Animation of the RL-Kirigami inverse-design workflow">
+  <br>
+  <sub>Inverse design: uncut sheet and target silhouette to FM-inferred cuts and deployed geometry.</sub>
+</p>
+
+### From compact rectangle to target silhouette
+
+The compact rectangular pattern is deployed from `phi = pi` to `phi = 0` using the project simulator. Each displayed quadrilateral follows the geometry returned by the code rather than an illustrative shape morph.
+
+<p align="center">
+  <img src="assets/deployment.gif" width="88%" alt="Animation of a compact kirigami sheet deploying into the target silhouette">
+  <br>
+  <sub>Forward deployment of the inferred compact cut pattern.</sub>
+</p>
+
+Manim is used only to compose the regular-hexagon target, project-generated quadrilaterals, and deployment frames. The reproducible source is [`assets/inverse_design_animation.py`](assets/inverse_design_animation.py).
+
 ## Publication
 
 > [!IMPORTANT]
@@ -41,7 +67,7 @@ RL-Kirigami is an inverse-design framework for compact reconfigurable parallelog
 >
 > **"Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes"**<br>
 > Milad Yazdani, Shahriar Shalileh, and Dena Shahriari<br>
-> *Materials & Design* (2026), Article 116545 | [https://doi.org/10.1016/j.matdes.2026.116545](https://doi.org/10.1016/j.matdes.2026.116545)
+> *Materials & Design*, Volume 268 (2026), Article 116545 | [https://doi.org/10.1016/j.matdes.2026.116545](https://doi.org/10.1016/j.matdes.2026.116545)
 
 If this repository or the associated methodology contributes to your work, we would be grateful if you cite the paper using the entry in the [Citation](#citation) section.
 
