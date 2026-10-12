@@ -7,13 +7,14 @@
 <p>
   <a href="https://doi.org/10.1016/j.matdes.2026.116545"><img alt="Paper in Materials & Design" src="https://img.shields.io/badge/Paper-Materials_%26_Design-005A9C?style=for-the-badge"></a>
   <a href="https://doi.org/10.1016/j.matdes.2026.116545"><img alt="DOI: 10.1016/j.matdes.2026.116545" src="https://img.shields.io/badge/DOI-10.1016%2Fj.matdes.2026.116545-B31B1B?style=for-the-badge&amp;logo=doi&amp;logoColor=white"></a>
+  <a href="https://arxiv.org/abs/2605.08098"><img alt="arXiv: 2605.08098" src="https://img.shields.io/badge/arXiv-2605.08098-B31B1B?style=for-the-badge&amp;logo=arxiv&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="Python 3.9-3.12" src="https://img.shields.io/badge/Python-3.9--3.12-3776AB?style=for-the-badge&amp;logo=python&amp;logoColor=white"></a>
   <a href="pyproject.toml"><img alt="PyTorch 2.5.1" src="https://img.shields.io/badge/PyTorch-2.5.1-EE4C2C?style=for-the-badge&amp;logo=pytorch&amp;logoColor=white"></a>
 </p>
 
 Research code accompanying our 2026 *Materials & Design* paper.
 
-[Paper](https://doi.org/10.1016/j.matdes.2026.116545) | [Installation](#installation) | [Citation](#citation)
+[Published paper](https://doi.org/10.1016/j.matdes.2026.116545) | [arXiv](https://arxiv.org/abs/2605.08098) | [Installation](#installation) | [Citation](#citation)
 
 </div>
 
@@ -57,6 +58,8 @@ RL-Kirigami is an inverse-design framework for compact reconfigurable parallelog
 > **"Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes"**<br>
 > Milad Yazdani, Shahriar Shalileh, and Dena Shahriari<br>
 > *Materials & Design*, Volume 268 (2026), Article 116545 | [https://doi.org/10.1016/j.matdes.2026.116545](https://doi.org/10.1016/j.matdes.2026.116545)
+>
+> The revised manuscript is also available on [arXiv:2605.08098](https://arxiv.org/abs/2605.08098) (v2).
 
 If this repository or the associated methodology contributes to your work, we would be grateful if you cite the paper using the entry in the [Citation](#citation) section.
 
@@ -157,8 +160,11 @@ If RL-Kirigami supports your research, please cite the accompanying publication:
   title={Reinforcement learning for inverse silhouette design and rapid laser cutting of compact parallelogram quad kirigami prototypes},
   author={Yazdani, Milad and Shalileh, Shahriar and Shahriari, Dena},
   journal={Materials \& Design},
+  volume={268},
   pages={116545},
   year={2026},
-  publisher={Elsevier}
+  publisher={Elsevier},
+  doi={10.1016/j.matdes.2026.116545},
+  url={https://doi.org/10.1016/j.matdes.2026.116545}
 }
 ```
